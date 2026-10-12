@@ -1,8 +1,9 @@
 # Scooty Scout
 
-## Telegram Crypto Market and Price Alert Bot
+## Crypto Market and Price Alert Bot
 
-Scooty Scout is a Telegram bot for cryptocurrency information and price notifications.
+Scooty Scout supports Telegram and Discord backends for cryptocurrency information.
+Discord command coverage is being added incrementally; `/coins` and `/new_crypto` are available now.
 
 # Table of Contents
 
@@ -14,6 +15,7 @@ Scooty Scout is a Telegram bot for cryptocurrency information and price notifica
     * [Environment File](#environment-file)
     * [Cryptocurrency JSON File](#cryptocurrency-json-file)
     * [Telegram Bot Setup](#telegram-bot-setup)
+    * [Discord Bot Setup](#discord-bot-setup)
 * [General Commands](#general-commands)
 * [Price Notification Commands](#price-notification-commands)
 * [Misc Commands](#misc-commands)
@@ -31,9 +33,8 @@ python -m pip install -r requirements.txt
 ## Backend Selection
 
 Start the bot with `python main.py`. `BOT_BACKEND` selects which chat platform to
-run and defaults to `telegram`, preserving existing deployments. The Discord
-adapter will be added in a later implementation step; until then, selecting
-`BOT_BACKEND=discord` reports that it is not available yet.
+run and defaults to `telegram`, preserving existing deployments. Run one backend
+per process. Discord has its own token and admin IDs.
 
 ## Tests
 
@@ -53,7 +54,7 @@ API keys are not included in log messages.
 
 ## Environment File
 
-`.env` file contains the api keys to retrieve cryptocurrency info and to connect to the telegram API.
+`.env` contains the API keys needed by the selected backend.
 This file is not included in the project. You will need to make it yourself.
 
 - Telegram: https://core.telegram.org/api/obtaining_api_id
@@ -71,6 +72,19 @@ ETHERSCAN_API_KEY = XXXXXX
 
 ADMIN_IDS = [1, 2, 3]
 ```
+
+For Discord, use this configuration instead of the Telegram variables:
+
+```.env
+BOT_BACKEND=discord
+DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
+DISCORD_ADMIN_IDS=[YOUR_DISCORD_USER_ID]
+DISCORD_GUILD_ID=YOUR_TEST_SERVER_ID
+COINMARKETCAP_API_KEY=YOUR_CMC_KEY
+```
+
+`DISCORD_GUILD_ID` is optional. Setting it registers slash commands in that
+server for testing. Only users in `DISCORD_ADMIN_IDS` can use `/new_crypto`.
 
 ## Cryptocurrency JSON File
 
@@ -92,6 +106,13 @@ The `cryptos.json` file contains entries for all cryptocurrencies known to the b
 ## Telegram Bot Setup
 
 In order to receive your Telegram API key and to setup the bot itself, you will need to message the [BotFather](https://botostore.com/c/botfather/) and use the `/newbot` command to create a bot. The BotFather can also be used to set a profile picture for the bot along with other things
+
+## Discord Bot Setup
+
+1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications). Copy the bot token into `DISCORD_BOT_TOKEN`.
+2. Install the application in a test server with the `bot` and `applications.commands` scopes and permission to send messages. Enable Developer Mode in Discord to copy your user ID and the test server ID.
+3. Copy `cryptos_example.json` to `cryptos.json`, configure the Discord `.env` values above, install `requirements.txt`, and run `python main.py`.
+4. In that server, try `/coins`. As a configured admin, try `/new_crypto` with a coin symbol or contract address. Review the preview and select **Add coin** or **Cancel**. Confirm that `/coins` lists the new symbol and `cryptos.json` contains it.
 
 # General Commands
 

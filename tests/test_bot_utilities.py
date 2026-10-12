@@ -6,7 +6,6 @@ import re
 from collections.abc import Callable, Iterator
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TypedDict
 
 import pytest
@@ -18,7 +17,8 @@ from requests.exceptions import (
 )
 
 import bot_utilities
-import globals
+from backend_config import Backend
+from command_context import CommandContext
 from logging_setup import configure_logging
 
 
@@ -34,14 +34,6 @@ class SessionCall(TypedDict):
     url: str
     params: dict[str, str]
     headers: dict[str, str]
-
-
-class RecordingBot:
-    def __init__(self) -> None:
-        self.messages: list[tuple[int, str]] = []
-
-    def send_message(self, chat_id: int, text: str) -> None:
-        self.messages.append((chat_id, text))
 
 
 class FakeResponse:
@@ -67,16 +59,6 @@ class FakeSession:
         if self.error is not None:
             raise self.error
         return FakeResponse(json.dumps(self.payload))
-
-
-@pytest.fixture
-def recording_bot(monkeypatch: pytest.MonkeyPatch) -> RecordingBot:
-    bot = RecordingBot()
-    monkeypatch.setattr(globals, "bot", bot, raising=False)
-    monkeypatch.setattr(
-        globals, "cryptos_json", {"BTC": {}, "ETH": {}}, raising=False
-    )
-    return bot
 
 
 @pytest.fixture
@@ -117,24 +99,14 @@ def test_user_state_starts_at_zero_and_tracks_current_command() -> None:
     assert repr(state) == "new_crypto-2"
 
 
-def test_usage_error_sends_usage_to_message_chat(recording_bot: RecordingBot) -> None:
-    """Verify usage errors are sent to the originating chat."""
-    message: SimpleNamespace = SimpleNamespace(chat=SimpleNamespace(id=42))
-
-    bot_utilities.usage_error(message, "/price COIN")
-
-    assert recording_bot.messages == [(42, "Usage\n/price COIN")]
+def test_usage_error_formats_message() -> None:
+    assert bot_utilities.usage_error("/price COIN") == "Usage\n/price COIN"
 
 
-def test_unknown_coin_lists_known_symbols(recording_bot: RecordingBot) -> None:
-    """Verify unknown-coin replies include the configured coin symbols."""
-    message: SimpleNamespace = SimpleNamespace(chat=SimpleNamespace(id=42))
-
-    bot_utilities.unknown_coin(message, "DOGE")
-
-    assert recording_bot.messages == [
-        (42, "Unknown coin: DOGE\n\nKnown coins:BTC ; ETH")
-    ]
+def test_unknown_coin_lists_known_symbols() -> None:
+    assert bot_utilities.unknown_coin("DOGE", ["BTC", "ETH"]) == (
+        "Unknown coin: DOGE\n\nKnown coins:BTC ; ETH"
+    )
 
 
 def test_log_to_disk_writes_timestamp_and_command(
@@ -155,12 +127,15 @@ def test_log_to_disk_writes_timestamp_and_command(
 def test_log_to_disk_includes_user_details(
     log_file: Path,
 ) -> None:
-    """Verify user identity is added to logs when a message is provided."""
+    """Verify platform-neutral actor identity is added to logs."""
     configure_logging(log_file)
-    message: SimpleNamespace = SimpleNamespace(
-        from_user=SimpleNamespace(id=7, first_name="Ada", last_name="Lovelace")
+    actor = CommandContext(
+        backend=Backend.TELEGRAM,
+        user_id="7",
+        conversation_id="7",
+        display_name="Ada Lovelace",
     )
-    bot_utilities.log_to_disk("Added BTC", "/new_crypto", message)
+    bot_utilities.log_to_disk("Added BTC", "/new_crypto", actor)
 
     assert log_file.read_text(encoding="utf-8").endswith(
         "INFO (/new_crypto){Ada Lovelace - 7} Added BTC\n"

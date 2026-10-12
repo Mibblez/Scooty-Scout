@@ -1,9 +1,10 @@
 import json
 import logging
+from collections.abc import Iterable
 from requests import Session
 from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 
-import globals
+from command_context import CommandContext
 
 
 logger = logging.getLogger("scooty_scout")
@@ -35,23 +36,19 @@ class TwitterVideoLogger(object):
         logger.error("Video download error: %s", msg)
 
 
-def usage_error(message, usage_str: str = ''):
-    globals.bot.send_message(message.chat.id, f'Usage\n{usage_str}')
+def usage_error(usage_str: str = '') -> str:
+    return f'Usage\n{usage_str}'
 
 
-def unknown_coin(message, invalid_coin_str):
-    globals.bot.send_message(message.chat.id,
-                             f"Unknown coin: {invalid_coin_str}\n\nKnown coins:"
-                             f"{' ; '.join([x for x in globals.cryptos_json.keys()])}")
+def unknown_coin(invalid_coin_str: object, known_coins: Iterable[str]) -> str:
+    return (f"Unknown coin: {invalid_coin_str}\n\nKnown coins:"
+            f"{' ; '.join(known_coins)}")
 
 
-def log_to_disk(log_message, command_name, user_message=None):
-    """Record an admin change, including the user when one is available."""
-    if user_message is not None:
-        user_id = user_message.from_user.id
-        user_first_name = user_message.from_user.first_name
-        user_last_name = user_message.from_user.last_name
-        log_message = f'{{{user_first_name} {user_last_name} - {user_id}}} {log_message}'
+def log_to_disk(log_message, command_name, actor: CommandContext | None = None):
+    """Record an admin change, including the actor when one is available."""
+    if actor is not None:
+        log_message = f'{{{actor.display_name} - {actor.user_id}}} {log_message}'
 
     logger.info("(%s)%s", command_name, log_message)
 

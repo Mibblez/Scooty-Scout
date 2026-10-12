@@ -12,15 +12,14 @@ def main() -> None:
     backend = get_backend()
 
     if backend is Backend.TELEGRAM:
-        # telegram_bot currently owns Telegram handler registration and startup.
-        import telegram_bot  # noqa: F401
+        from telegram_bot import run
 
+        run()
         return
 
-    raise SystemExit(
-        "The Discord backend is not available yet. Set BOT_BACKEND=telegram "
-        "to start the current backend."
-    )
+    from discord_bot import run
+
+    run()
 
 
 if __name__ == "__main__":

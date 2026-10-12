@@ -2,3 +2,4 @@ pyTelegramBotAPI==4.37.0
 python-dotenv==1.2.4
 requests==2.34.2
 yt-dlp==2026.8.19
+discord.py==2.7.1

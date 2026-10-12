@@ -107,13 +107,13 @@ def notify(cursor, message):
 
     if request == '':
         # Too many or too few args
-        usage_error(message, '/price_notify COIN_NAME PRICE_TARGET')
+        globals.bot.send_message(message.chat.id, usage_error('/price_notify COIN_NAME PRICE_TARGET'))
         return
 
     coin = request[0].upper()
     if coin not in globals.cryptos_json:
         # Given a coin name thats not in the JSON file
-        unknown_coin(message, request)
+        globals.bot.send_message(message.chat.id, unknown_coin(request, globals.cryptos_json))
         return
 
     # Make sure price_target arg can be converted to a float
@@ -121,8 +121,9 @@ def notify(cursor, message):
     try:
         price_target = float(request[1].strip('$'))
     except ValueError:
-        usage_error(message, '/price_notify COIN_NAME PRICE_TARGET\n'
-                    'Ensure that PRICE_TARGET is a number')
+        globals.bot.send_message(message.chat.id,
+                                 usage_error('/price_notify COIN_NAME PRICE_TARGET\n'
+                                             'Ensure that PRICE_TARGET is a number'))
         return
 
     user_id = message.from_user.id
@@ -184,13 +185,13 @@ def delete_notification(cursor, message):
 
     if request == '':
         # Too many or too few args
-        usage_error(message, '/delete_notification COIN_NAME')
+        globals.bot.send_message(message.chat.id, usage_error('/delete_notification COIN_NAME'))
         return
 
     coin = request[0].upper()
     if coin not in globals.cryptos_json:
         # Given a coin name thats not in the JSON file
-        unknown_coin(message, request)
+        globals.bot.send_message(message.chat.id, unknown_coin(request, globals.cryptos_json))
         return
 
     user_id = message.from_user.id
