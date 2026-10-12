@@ -16,6 +16,14 @@ A Telegram bot designed to provide information and price notifications for crypt
 
 # Setup
 
+## Python Version
+
+This project uses Python 3.14.x (tested with Python 3.14.8). Install the dependencies with:
+
+```sh
+python -m pip install -r requirements.txt
+```
+
 ## Environment File
 
 `.env` file contains the api keys to retrieve cryptocurrency info and to connect to the telegram API.

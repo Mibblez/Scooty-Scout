@@ -19,7 +19,7 @@ from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 
 from threading import Thread
 
-import youtube_dl
+import yt_dlp
 
 import globals
 from bot_utilities import cmc_id_map, get_coin_data, usage_error, unknown_coin, get_coin_info, log_to_disk
@@ -365,9 +365,9 @@ def new_media_command_twitter_video(message):
                 }
 
     try:
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([twitter_vid_url])
-    except youtube_dl.utils.DownloadError:
+    except yt_dlp.utils.DownloadError:
         bot.reply_to(message, "Could not download video. Maybe the provided URL is invalid?")
         return
 
@@ -382,7 +382,7 @@ def twitter_download_hook(d):
         command_name, file_extension = os.path.splitext(file_name)
 
         if file_extension != '.mp4':
-            raise youtube_dl.utils.DownloadError("Invalid file extension")
+            raise yt_dlp.utils.DownloadError("Invalid file extension")
 
         command_str = f"\n\n@bot.message_handler(commands=['{command_name}'])\n" +\
                       f"def uc_{command_name}(message):\n" +\

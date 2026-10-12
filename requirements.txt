@@ -1,4 +1,4 @@
-pyTelegramBotAPI==4.1.1
-python-dotenv==0.19.1
-requests==2.26.0
-youtube-dl==2021.6.6
+pyTelegramBotAPI==4.37.0
+python-dotenv==1.2.4
+requests==2.34.2
+yt-dlp==2026.8.19
