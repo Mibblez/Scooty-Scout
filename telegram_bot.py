@@ -21,6 +21,7 @@ from threading import Thread
 
 import yt_dlp
 
+from backend_config import Backend, get_backend
 import globals
 from logging_setup import configure_logging
 from bot_utilities import cmc_id_map, get_coin_data, usage_error, unknown_coin, get_coin_info, log_to_disk
@@ -35,6 +36,10 @@ for dir in necessary_dirs:
         os.mkdir(dir)
 
 load_dotenv()
+if get_backend() is not Backend.TELEGRAM:
+    logger.error("telegram_bot.py can only start when BOT_BACKEND=telegram; use main.py")
+    sys.exit(1)
+
 TELEGRAM_API_KEY = os.getenv('TELEGRAM_API_KEY')
 CMC_API_KEY = os.getenv('COINMARKETCAP_API_KEY')
 ETHERSCAN_API_KEY = os.getenv('ETHERSCAN_API_KEY')

@@ -8,6 +8,7 @@ Scooty Scout is a Telegram bot for cryptocurrency information and price notifica
 
 * [Setup](#setup)
     * [Python Version](#python-version)
+    * [Backend Selection](#backend-selection)
     * [Tests](#tests)
     * [Logging](#logging)
     * [Environment File](#environment-file)
@@ -26,6 +27,13 @@ This project uses Python 3.14.x (tested with Python 3.14.8). Install the depende
 ```sh
 python -m pip install -r requirements.txt
 ```
+
+## Backend Selection
+
+Start the bot with `python main.py`. `BOT_BACKEND` selects which chat platform to
+run and defaults to `telegram`, preserving existing deployments. The Discord
+adapter will be added in a later implementation step; until then, selecting
+`BOT_BACKEND=discord` reports that it is not available yet.
 
 ## Tests
 
