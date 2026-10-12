@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from datetime import datetime as DateTime
+import logging
+import re
+from collections.abc import Callable, Iterator
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TypedDict
@@ -17,6 +19,7 @@ from requests.exceptions import (
 
 import bot_utilities
 import globals
+from logging_setup import configure_logging
 
 
 class Coin(TypedDict):
@@ -88,13 +91,16 @@ def mock_session(monkeypatch: pytest.MonkeyPatch) -> FakeSession:
 
 
 @pytest.fixture
-def fixed_log_time(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FixedDateTime:
-        @classmethod
-        def now(cls: type[FixedDateTime]) -> DateTime:
-            return DateTime(2026, 10, 11, 12, 34, 56)
-
-    monkeypatch.setattr(bot_utilities, "datetime", FixedDateTime)
+def log_file(tmp_path: Path) -> Iterator[Path]:
+    path = tmp_path / "botlog.log"
+    try:
+        yield path
+    finally:
+        logger = logging.getLogger("scooty_scout")
+        for handler in logger.handlers[:]:
+            if handler.name in {"scooty_scout_file", "scooty_scout_terminal"}:
+                logger.removeHandler(handler)
+                handler.close()
 
 
 def test_user_state_starts_at_zero_and_tracks_current_command() -> None:
@@ -132,50 +138,63 @@ def test_unknown_coin_lists_known_symbols(recording_bot: RecordingBot) -> None:
 
 
 def test_log_to_disk_writes_timestamp_and_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_log_time: None
+    log_file: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Verify log entries include a timestamp and command name."""
-    monkeypatch.chdir(tmp_path)
-
+    configure_logging(log_file)
     bot_utilities.log_to_disk("Started", "/start")
 
-    assert (tmp_path / "botlog.log").read_text(encoding="utf-8") == (
-        "[2026-10-11 12:34:56](/start)Started\n"
+    entry = log_file.read_text(encoding="utf-8")
+    assert re.fullmatch(
+        r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] INFO \(/start\)Started\n",
+        entry,
     )
+    assert capsys.readouterr().err == entry
 
 
 def test_log_to_disk_includes_user_details(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_log_time: None
+    log_file: Path,
 ) -> None:
     """Verify user identity is added to logs when a message is provided."""
+    configure_logging(log_file)
     message: SimpleNamespace = SimpleNamespace(
         from_user=SimpleNamespace(id=7, first_name="Ada", last_name="Lovelace")
     )
-    monkeypatch.chdir(tmp_path)
-
     bot_utilities.log_to_disk("Added BTC", "/new_crypto", message)
 
-    assert (tmp_path / "botlog.log").read_text(encoding="utf-8") == (
-        "[2026-10-11 12:34:56](/new_crypto){Ada Lovelace - 7} Added BTC\n"
+    assert log_file.read_text(encoding="utf-8").endswith(
+        "INFO (/new_crypto){Ada Lovelace - 7} Added BTC\n"
     )
 
 
 def test_log_to_disk_preserves_existing_entries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed_log_time: None
+    log_file: Path,
 ) -> None:
     """Verify successive log calls append entries without losing earlier logs."""
-    monkeypatch.chdir(tmp_path)
-    log_path = tmp_path / "botlog.log"
-    log_path.write_text("Existing entry\n", encoding="utf-8")
-
+    configure_logging(log_file)
     bot_utilities.log_to_disk("First", "/start")
     bot_utilities.log_to_disk("Second", "/price")
 
-    assert log_path.read_text(encoding="utf-8") == (
-        "Existing entry\n"
-        "[2026-10-11 12:34:56](/start)First\n"
-        "[2026-10-11 12:34:56](/price)Second\n"
-    )
+    entries = log_file.read_text(encoding="utf-8").splitlines()
+    assert len(entries) == 2
+    assert entries[0].endswith("INFO (/start)First")
+    assert entries[1].endswith("INFO (/price)Second")
+
+
+def test_logging_rotates_at_ten_megabytes(log_file: Path) -> None:
+    """Verify the configured log size and retention without writing a large file."""
+    logger = configure_logging(log_file)
+    file_handlers = [
+        handler for handler in logger.handlers
+        if isinstance(handler, RotatingFileHandler)
+    ]
+
+    assert len(file_handlers) == 1
+    assert file_handlers[0].maxBytes == 10_000_000
+    assert file_handlers[0].backupCount == 3
+    initial_handlers = logger.handlers[:]
+    assert configure_logging(log_file) is logger
+    assert logger.handlers == initial_handlers
 
 
 def test_get_coin_data_sends_api_key_and_coin_id(

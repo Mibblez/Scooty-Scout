@@ -7,6 +7,9 @@ Scooty Scout is a Telegram bot for cryptocurrency information and price notifica
 # Table of Contents
 
 * [Setup](#setup)
+    * [Python Version](#python-version)
+    * [Tests](#tests)
+    * [Logging](#logging)
     * [Environment File](#environment-file)
     * [Cryptocurrency JSON File](#cryptocurrency-json-file)
     * [Telegram Bot Setup](#telegram-bot-setup)
@@ -32,6 +35,13 @@ Install the development and runtime dependencies, then run the test suite with c
 python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+## Logging
+
+Scooty Scout writes startup events, failures, and admin changes to the terminal and
+`botlog.log`. Command creation entries include the creator's name and Telegram user ID.
+The file rotates at 10 MB and keeps three older copies (`botlog.log.1` through `.3`).
+API keys are not included in log messages.
 
 ## Environment File
 

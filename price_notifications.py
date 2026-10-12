@@ -1,10 +1,13 @@
 import sqlite3
 import time
+import logging
 
 import functools
 
 import globals
 from bot_utilities import get_coin_data, usage_error, unknown_coin
+
+logger = logging.getLogger("scooty_scout")
 
 
 def initialize_db():
@@ -222,6 +225,10 @@ def check_price_notifications():
         coin_string = ",".join(coin_ids)
 
         coin_data = get_coin_data(coin_string, globals.CMC_API_KEY)
+        if coin_data is None:
+            logger.warning("Price notification check skipped because market data is unavailable")
+            time.sleep(900)
+            continue
 
         for coin_id, coin_name in zip(coin_ids, coin_names):
             current_price = float("{:.10f}".format(coin_data['data'][coin_id]['quote']['USD']['price']))

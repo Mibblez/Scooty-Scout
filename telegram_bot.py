@@ -22,8 +22,11 @@ from threading import Thread
 import yt_dlp
 
 import globals
+from logging_setup import configure_logging
 from bot_utilities import cmc_id_map, get_coin_data, usage_error, unknown_coin, get_coin_info, log_to_disk
 from bot_utilities import UserState, TwitterVideoLogger
+
+logger = configure_logging()
 
 # Create necessary folders if they don't exist
 necessary_dirs = ['misc_commands/', 'media/', 'media/user_media/']
@@ -44,22 +47,21 @@ try:
             raise ValueError('ValueError: ADMIN_IDS contains a non-interger value')
         elif id < 0:
             raise ValueError('ValueError: ADMIN_IDS cannot contain negetive intergers as those are not valid IDs')
-except (ValueError, SyntaxError) as err:
-    print(err)
-    print("ADMIN_IDS .env variable missing or malformed\n"
-          "ADMIN_IDS should be formatted as a python list of integers (Ex: ADMIN_IDS = [1, 2, 3])")
-    sys.exit()
+except (TypeError, ValueError, SyntaxError) as err:
+    logger.error("ADMIN_IDS .env variable missing or malformed: %s", err)
+    logger.error("ADMIN_IDS should be a list of integers, such as [1, 2, 3]")
+    sys.exit(1)
 
 if None in [TELEGRAM_API_KEY, CMC_API_KEY, ETHERSCAN_API_KEY]:
-    print('ERROR: Missing API key(s)\n'
-          'API keys for the following APIs must be present in the .env file: '
-          'TELEGRAM, Coinmarketcap, Etherscan\n'
-          'These API keys must be named TELEGRAM_API_KEY, COINMARKETCAP_API_KEY and ETHERSCAN_API_KEY')
-    sys.exit()
+    logger.error(
+        "Missing API key(s) in .env: TELEGRAM_API_KEY, "
+        "COINMARKETCAP_API_KEY and ETHERSCAN_API_KEY are required"
+    )
+    sys.exit(1)
 
 if not os.path.exists('cryptos.json'):
-    print('ERROR: cryptos.json not found\n'
-          'Create a cryptos.json according to the template named cryptos_example.json')
+    logger.error("cryptos.json not found; create it from cryptos_example.json")
+    sys.exit(1)
 
 json_file = open('cryptos.json')
 cryptos_json = json.load(json_file)
@@ -248,8 +250,7 @@ def ethgas(message):
         stats_data = json.loads(stats_response.text)['result']
     except (ConnectionError, Timeout, TooManyRedirects) as e:
         bot.send_message(message.chat.id, "Could not reach API. Try again later.")
-        print("/ethgas API failure")
-        print(e)
+        logger.warning("Etherscan gas request failed: %s", type(e).__name__)
         return
 
     gwei_to_usd = 0.000000001 * float(stats_data['ethusd'])
@@ -368,6 +369,10 @@ def new_media_command_twitter_video(message):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([twitter_vid_url])
     except yt_dlp.utils.DownloadError:
+        logger.warning(
+            "Video command /%s download failed for user %s",
+            command_name, message.from_user.id,
+        )
         bot.reply_to(message, "Could not download video. Maybe the provided URL is invalid?")
         return
 
@@ -720,22 +725,30 @@ def at_everyone(cursor, message):
 
 
 def message_polling():
-    print('Starting...')
+    logger.info("Telegram polling started")
     while True:
         try:
             bot.polling()
         except Exception as e:
-            print(type(e))
-            print(e)
+            logger.error("Telegram polling failed: %s", type(e).__name__)
 
         time.sleep(1)
 
 
+def run_price_checker():
+    logger.info("Price checker started")
+    try:
+        price_notifications.check_price_notifications()
+    except Exception as e:
+        logger.error("Price checker stopped: %s", type(e).__name__)
+
+
 price_notifications.initialize_db()
+logger.info("Scooty Scout started")
 
 # Workaround to stop the bot from failing when HTTP timeout happens but still allow CTRL-C to close it
 telegram_polling_thread = Thread(target=message_polling)
 telegram_polling_thread.start()
 
-price_checker_thread = Thread(target=price_notifications.check_price_notifications)
+price_checker_thread = Thread(target=run_price_checker)
 price_checker_thread.start()

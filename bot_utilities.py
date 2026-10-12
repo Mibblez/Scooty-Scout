@@ -1,9 +1,12 @@
 import json
+import logging
 from requests import Session
 from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
-from datetime import datetime
 
 import globals
+
+
+logger = logging.getLogger("scooty_scout")
 
 
 class UserState:
@@ -26,10 +29,10 @@ class TwitterVideoLogger(object):
         pass
 
     def warning(self, msg):
-        pass
+        logger.warning("Video download warning: %s", msg)
 
     def error(self, msg):
-        pass
+        logger.error("Video download error: %s", msg)
 
 
 def usage_error(message, usage_str: str = ''):
@@ -43,18 +46,14 @@ def unknown_coin(message, invalid_coin_str):
 
 
 def log_to_disk(log_message, command_name, user_message=None):
-    # Append user's name and ID to the start of the log file, if provided via user_message
+    """Record an admin change, including the user when one is available."""
     if user_message is not None:
         user_id = user_message.from_user.id
         user_first_name = user_message.from_user.first_name
         user_last_name = user_message.from_user.last_name
         log_message = f'{{{user_first_name} {user_last_name} - {user_id}}} {log_message}'
 
-    with globals.log_lock:
-        with open('botlog.log', 'a') as log_file:
-            time_now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            log_file.write(f'[{time_now}]({command_name}){log_message}\n')
+    logger.info("(%s)%s", command_name, log_message)
 
 
 def get_coin_data(coin_id, cmc_api_key):
@@ -76,7 +75,7 @@ def get_coin_data(coin_id, cmc_api_key):
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:
-        print(e)
+        logger.warning("CoinMarketCap quote request failed: %s", type(e).__name__)
         return None
 
 
@@ -105,7 +104,7 @@ def get_coin_info(contract_address, cmc_api_key, id=None):
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:
-        print(e)
+        logger.warning("CoinMarketCap info request failed: %s", type(e).__name__)
         return None
 
 
@@ -128,5 +127,5 @@ def cmc_id_map(symbol, cmc_api_key):
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:
-        print(e)
+        logger.warning("CoinMarketCap map request failed: %s", type(e).__name__)
         return None
