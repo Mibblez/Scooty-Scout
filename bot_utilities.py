@@ -1,5 +1,4 @@
 import json
-import pprint as pp
 from requests import Session
 from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 from datetime import datetime
@@ -77,8 +76,6 @@ def get_coin_data(coin_id, cmc_api_key):
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:
-        data = json.loads(response.text)
-        pp.pprint(data)
         print(e)
         return None
 
@@ -108,8 +105,6 @@ def get_coin_info(contract_address, cmc_api_key, id=None):
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:
-        data = json.loads(response.text)
-        pp.pprint(data)
         print(e)
         return None
 
@@ -133,7 +128,5 @@ def cmc_id_map(symbol, cmc_api_key):
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:
-        data = json.loads(response.text)
-        pp.pprint(data)
         print(e)
         return None
