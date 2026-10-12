@@ -1,8 +1,8 @@
-﻿# degen-bot 
+# Scooty Scout
 
-## Telegram Cryptocurrency Bot
+## Telegram Crypto Market and Price Alert Bot
 
-A Telegram bot designed to provide information and price notifications for cryptocurrencies.
+Scooty Scout is a Telegram bot for cryptocurrency information and price notifications.
 
 # Table of Contents
 
