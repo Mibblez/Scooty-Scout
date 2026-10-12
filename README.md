@@ -24,6 +24,15 @@ This project uses Python 3.14.x (tested with Python 3.14.8). Install the depende
 python -m pip install -r requirements.txt
 ```
 
+## Tests
+
+Install the development and runtime dependencies, then run the test suite with coverage:
+
+```sh
+python -m pip install -r requirements-dev.txt
+python -m pytest
+```
+
 ## Environment File
 
 `.env` file contains the api keys to retrieve cryptocurrency info and to connect to the telegram API.
