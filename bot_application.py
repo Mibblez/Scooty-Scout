@@ -1,6 +1,7 @@
 """Shared bot behavior called by each chat-platform adapter."""
 
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Mapping
@@ -9,8 +10,11 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from bot_utilities import cmc_id_map, get_coin_info
+from bot_utilities import cmc_id_map, get_coin_data, get_coin_info, unknown_coin, usage_error
 from command_context import CommandContext
+from price_alerts import PriceAlerts, PriceAlertError
+
+logger = logging.getLogger("scooty_scout")
 
 
 class CoinCreationError(ValueError):
@@ -49,15 +53,50 @@ class BotApplication:
         cryptos: Mapping[str, Any],
         cmc_api_key: str | None = None,
         crypto_path: str | Path = "cryptos.json",
+        notification_path: str | Path | None = None,
     ) -> None:
         self.cryptos = dict(cryptos) if not isinstance(cryptos, dict) else cryptos
         self.cmc_api_key = cmc_api_key
         self.crypto_path = Path(crypto_path)
         self._catalog_lock = Lock()
+        self.price_alerts = PriceAlerts(self.cryptos, cmc_api_key, notification_path) if notification_path else None
 
     def coins(self, _context: CommandContext) -> str:
         """List known coins without depending on a platform's message API."""
         return 'Known coins:\n' + ' ; '.join(self.cryptos)
+
+    def price(self, _context: CommandContext, symbol: str) -> str:
+        """Get a known coin's USD price and 24-hour movement for any platform."""
+        symbol = symbol.strip().upper()
+        if not symbol:
+            return usage_error('/price COIN_SYMBOL')
+        if symbol not in self.cryptos:
+            return unknown_coin(symbol, self.cryptos)
+
+        unavailable = "Could not get the latest price. Try again later."
+        if not self.cmc_api_key:
+            return unavailable
+        try:
+            coin_id = str(self.cryptos[symbol]['cmc_id'])
+            coin_data = get_coin_data(coin_id, self.cmc_api_key)
+            if coin_data is None:
+                return unavailable
+            quote = coin_data['data'][coin_id]['quote']['USD']
+            latest_price = f"{quote['price']:.10f}"
+            percent_change_24h = float(f"{quote['percent_change_24h']:.2f}")
+        except (KeyError, TypeError, ValueError):
+            logger.warning("CoinMarketCap returned an invalid quote for %s", symbol)
+            return unavailable
+
+        movement_direction = '⬆️' if percent_change_24h > 0.0 else '⬇️'
+        return (f"{symbol} Price: ${latest_price}\n"
+                f"{movement_direction} {percent_change_24h}% (24H)")
+
+    def price_notify(self, context: CommandContext, symbol: str, target: str | float) -> str:
+        """Set or replace one user's price alert through the shared service."""
+        if self.price_alerts is None:
+            raise PriceAlertError('Price notifications are not configured.')
+        return self.price_alerts.set_notification(context, symbol, target)
 
     def prepare_new_coin(self, identifier: str) -> CoinCandidate:
         """Look up one coin in CoinMarketCap and prepare it for confirmation."""

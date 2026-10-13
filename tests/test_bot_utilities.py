@@ -51,8 +51,10 @@ class FakeSession:
         self.calls: list[SessionCall] = []
         self.payload: CoinMarketCapResponse = {"data": [{"id": 1, "symbol": "BTC"}]}
         self.error: RequestException | None = None
+        self.timeout: int | None = None
 
-    def get(self, url: str, params: dict[str, str]) -> FakeResponse:
+    def get(self, url: str, params: dict[str, str], timeout: int | None = None) -> FakeResponse:
+        self.timeout = timeout
         self.calls.append(
             {"url": url, "params": params.copy(), "headers": self.headers.copy()}
         )
@@ -180,6 +182,7 @@ def test_get_coin_data_sends_api_key_and_coin_id(
     result: CoinMarketCapResponse = bot_utilities.get_coin_data("1", "test-api-key")
 
     assert result == mock_session.payload
+    assert mock_session.timeout == 15
     assert mock_session.calls == [
         {
             "url": "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest",

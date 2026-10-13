@@ -68,7 +68,7 @@ def get_coin_data(coin_id, cmc_api_key):
     session.headers.update(headers)
 
     try:
-        response = session.get(url, params=parameters)
+        response = session.get(url, params=parameters, timeout=15)
         data = json.loads(response.text)
         return data
     except (ConnectionError, Timeout, TooManyRedirects) as e:

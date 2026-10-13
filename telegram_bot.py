@@ -25,7 +25,7 @@ from backend_config import Backend, get_backend
 from bot_application import BotApplication, CoinCreationError
 import globals
 from logging_setup import configure_logging
-from bot_utilities import get_coin_data, usage_error, unknown_coin, log_to_disk
+from bot_utilities import usage_error, unknown_coin, log_to_disk
 from bot_utilities import UserState, TwitterVideoLogger
 from telegram_adapter import TelegramAdapter, context_from_message
 
@@ -82,7 +82,7 @@ from price_notifications import uses_notification_db
 
 user_states = {}
 
-application = BotApplication(cryptos_json, CMC_API_KEY)
+application = BotApplication(cryptos_json, CMC_API_KEY, notification_path='notifications.db')
 TelegramAdapter(bot, application).register()
 
 
@@ -191,39 +191,6 @@ def start_bot(message):
     connection.close()
 
     bot.reply_to(message, "Henlo")
-
-
-@bot.message_handler(commands=['price'])
-def price(message):
-    request = message.text.split()[1] if len(message.text.split()) == 2 else ''
-
-    # Too many or too few args
-    if request == '':
-        bot.send_message(message.chat.id, usage_error('/price COIN_NAME'))
-        return
-
-    # Given a coin name thats not in the JSON file
-    if request not in cryptos_json:
-        bot.send_message(message.chat.id, unknown_coin(request, cryptos_json))
-        return
-
-    coin_id = cryptos_json[request]["cmc_id"]
-    coin_data = get_coin_data(coin_id, CMC_API_KEY)
-
-    if coin_data is None:
-        bot.send_message(message.chat.id, "Could not get the latest price. Try again later.")
-        return
-
-    latest_price = "{:.10f}".format(
-        coin_data['data'][coin_id]['quote']['USD']['price'])
-
-    percent_change_24h = float("{:.2f}".format(
-        coin_data['data'][coin_id]['quote']['USD']['percent_change_24h']))
-
-    movement_direction = '⬆️' if percent_change_24h > 0.0 else '⬇️'
-
-    bot.send_message(message.chat.id, f"{request} Price: ${latest_price}\n"
-                     f"{movement_direction} {percent_change_24h}% (24H)")
 
 
 # TODO:  Different gas amounts with subcommands(normal transaction, uniswap, erc20, etc)
@@ -669,7 +636,7 @@ def message_polling():
 def run_price_checker():
     logger.info("Price checker started")
     try:
-        price_notifications.check_price_notifications()
+        price_notifications.check_price_notifications(application.price_alerts)
     except Exception as e:
         logger.error("Price checker stopped: %s", type(e).__name__)
 

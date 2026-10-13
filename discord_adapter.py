@@ -3,14 +3,17 @@
 import asyncio
 import io
 import logging
+from contextlib import suppress
 
 import discord
 from discord import app_commands
+from discord.ext import tasks
 
 from backend_config import Backend
 from bot_application import BotApplication, CoinCandidate, CoinCreationError
 from bot_utilities import log_to_disk
 from command_context import CommandContext
+from price_alerts import PriceAlertError
 
 logger = logging.getLogger("scooty_scout")
 
@@ -77,6 +80,45 @@ class DiscordAdapter(discord.Client):
                 attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="coins.txt")
                 await interaction.response.send_message("Known coins are attached.", file=attachment)
 
+        @self.tree.command(name="price", description="Get a coin's USD price and 24-hour change")
+        @app_commands.describe(symbol="Known coin symbol, such as BTC (see /coins)")
+        async def price(interaction: discord.Interaction, symbol: str) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                response = await asyncio.to_thread(
+                    self.bot_application.price, context_from_interaction(interaction), symbol
+                )
+            except Exception:
+                logger.exception("Discord /price lookup failed")
+                await interaction.followup.send("Could not get the latest price. Try again later.")
+                return
+            if len(response) <= 2000:
+                await interaction.followup.send(response)
+            else:
+                attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="price.txt")
+                await interaction.followup.send("Price command response is attached.", file=attachment)
+
+        @self.tree.command(name="price_notify", description="DM you when a coin crosses your target USD price")
+        @app_commands.describe(symbol="Known coin symbol (see /coins)", target="Target price in USD")
+        async def price_notify(interaction: discord.Interaction, symbol: str, target: float) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                response = await asyncio.to_thread(
+                    self.bot_application.price_notify, context_from_interaction(interaction), symbol, target
+                )
+            except PriceAlertError as error:
+                response = str(error)
+            except Exception:
+                logger.exception("Discord /price_notify failed")
+                response = "Could not set that price notification. Try again later."
+            else:
+                response += "\nAlerts arrive by DM. Allow DMs from this server's members. Prices are checked every 15 minutes."
+            if len(response) <= 2000:
+                await interaction.followup.send(response, ephemeral=True)
+            else:
+                attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="notification.txt")
+                await interaction.followup.send("Price notification response is attached.", file=attachment, ephemeral=True)
+
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")
         async def new_crypto(interaction: discord.Interaction, identifier: str) -> None:
@@ -105,3 +147,38 @@ class DiscordAdapter(discord.Client):
             guild = discord.Object(id=self.guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
+        if self.bot_application.price_alerts is not None:
+            self.check_price_notifications.start()
+
+    @tasks.loop(minutes=15)
+    async def check_price_notifications(self) -> None:
+        alerts = self.bot_application.price_alerts
+        if alerts is None:
+            return
+        try:
+            notifications = await asyncio.to_thread(alerts.due_notifications)
+        except Exception:
+            logger.exception("Discord price notification check failed")
+            return
+        for notification in notifications:
+            try:
+                user = self.get_user(notification.user_id) or await self.fetch_user(notification.user_id)
+                await user.send(notification.message())
+                await asyncio.to_thread(alerts.acknowledge, notification.notification_id)
+            except discord.HTTPException:
+                logger.warning("Could not DM Discord user %s; retaining price notification %s for retry",
+                               notification.user_id, notification.notification_id)
+            except Exception:
+                logger.exception("Discord price notification %s failed", notification.notification_id)
+
+    @check_price_notifications.before_loop
+    async def before_price_notifications(self) -> None:
+        await self.wait_until_ready()
+
+    async def close(self) -> None:
+        task = self.check_price_notifications.get_task()
+        self.check_price_notifications.cancel()
+        if task is not None:
+            with suppress(asyncio.CancelledError):
+                await task
+        await super().close()

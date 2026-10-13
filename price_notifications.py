@@ -5,7 +5,8 @@ import logging
 import functools
 
 import globals
-from bot_utilities import get_coin_data, usage_error, unknown_coin
+from bot_utilities import usage_error, unknown_coin
+from price_alerts import PriceAlerts
 
 logger = logging.getLogger("scooty_scout")
 
@@ -100,65 +101,6 @@ def at_everyone_opt_out(cursor, message):
     globals.bot.reply_to(message, "You won't be notified when someone uses the /everyone command")
 
 
-@globals.bot.message_handler(commands=['price_notify', 'pnot'])
-@uses_notification_db
-def notify(cursor, message):
-    request = message.text.split()[1:3] if len(message.text.split()) == 3 else ''
-
-    if request == '':
-        # Too many or too few args
-        globals.bot.send_message(message.chat.id, usage_error('/price_notify COIN_NAME PRICE_TARGET'))
-        return
-
-    coin = request[0].upper()
-    if coin not in globals.cryptos_json:
-        # Given a coin name thats not in the JSON file
-        globals.bot.send_message(message.chat.id, unknown_coin(request, globals.cryptos_json))
-        return
-
-    # Make sure price_target arg can be converted to a float
-    price_target = 0.0
-    try:
-        price_target = float(request[1].strip('$'))
-    except ValueError:
-        globals.bot.send_message(message.chat.id,
-                                 usage_error('/price_notify COIN_NAME PRICE_TARGET\n'
-                                             'Ensure that PRICE_TARGET is a number'))
-        return
-
-    user_id = message.from_user.id
-
-    # Make sure user is in the database
-    cursor.execute(f"SELECT user_id FROM users WHERE user_id={user_id}")
-    if cursor.fetchone() is None:
-        globals.bot.reply_to(message, "Cannot set price notification. You must DM the bot /start first.")
-        return
-
-    coin_id = globals.cryptos_json[coin]["cmc_id"]
-    coin_data = get_coin_data(coin_id, globals.CMC_API_KEY)
-
-    if coin_data is None:
-        globals.bot.send_message(message.chat.id, "Could not get the latest price. Try again later.")
-        return
-
-    latest_price = float("{:.10f}".format(
-        coin_data['data'][coin_id]['quote']['USD']['price']))
-
-    desired_price_movement = '+' if latest_price < price_target else '-'
-
-    # See if user already has a notification for this coin. Overwrite the old notification if so
-    cursor.execute(f"SELECT notification_id from price_notifications WHERE user_id={user_id} AND coin='{coin}'")
-    # If NULL is used for the notification ID, the db will replace it with a unique ID
-    price_notification_id = 'NULL'
-    if (fetch := cursor.fetchone()) is not None:
-        price_notification_id = fetch[0]
-
-    cursor.execute('REPLACE INTO price_notifications VALUES '
-                   f"({price_notification_id}, '{coin}', {user_id}, {price_target}, '{desired_price_movement}')")
-
-    globals.bot.reply_to(message, f"Created notification for {coin} at ${price_target}")
-
-
 @globals.bot.message_handler(commands=['check_notifications', 'cnot'])
 @uses_notification_db
 def check_notifications(cursor, message):
@@ -206,50 +148,16 @@ def delete_notification(cursor, message):
     globals.bot.reply_to(message, f"Notification for {coin} deleted")
 
 
-def check_price_notifications():
-    connection = sqlite3.connect('notifications.db')
-    cursor = connection.cursor()
-
+def check_price_notifications(alerts: PriceAlerts):
     while True:
-        # Get a list of coins that have notifications set
-        cursor.execute("SELECT DISTINCT coin FROM price_notifications")
-        coin_names = [item for t in cursor.fetchall() for item in t]
-
-        # Only check notifications if someone has a notification set
-        if coin_names is None:
-            time.sleep(900)
-            continue
-
-        coin_ids = list(map(lambda coin_name: globals.cryptos_json[coin_name]["cmc_id"], coin_names))
-
-        # Convert coin_ids list to a string so it can be passed to the CMC api
-        coin_string = ",".join(coin_ids)
-
-        coin_data = get_coin_data(coin_string, globals.CMC_API_KEY)
-        if coin_data is None:
-            logger.warning("Price notification check skipped because market data is unavailable")
-            time.sleep(900)
-            continue
-
-        for coin_id, coin_name in zip(coin_ids, coin_names):
-            current_price = float("{:.10f}".format(coin_data['data'][coin_id]['quote']['USD']['price']))
-
-            cursor.execute("SELECT notification_id, user_id, notify_at, direction FROM price_notifications "
-                           f"WHERE coin='{coin_name}'")
-
-            result = cursor.fetchall()
-
-            # Check if the price for each coin is high or low enough to trigger a notification
-            # If so, DM the user and remove the notification entry from the database
-            for notification_id, user_id, notification_price, direction in result:
-                if direction == '+' and current_price > notification_price:
-                    globals.bot.send_message(user_id, 'HEY FELLOW 🦍!\n'
-                                             f'{coin_name} has risen above {notification_price} and is at {current_price}.')
-                    cursor.execute(f"DELETE FROM price_notifications WHERE notification_id={notification_id}")
-                elif direction == '-' and current_price < notification_price:
-                    globals.bot.send_message(user_id, 'HEY 🌈🐻!\n'
-                                             f'{coin_name} has fallen below {notification_price} and is at {current_price}.')
-                    cursor.execute(f"DELETE FROM price_notifications WHERE notification_id={notification_id}")
-
-        connection.commit()
+        try:
+            for notification in alerts.due_notifications():
+                try:
+                    globals.bot.send_message(notification.user_id, notification.message())
+                    alerts.acknowledge(notification.notification_id)
+                except Exception:
+                    logger.exception('Telegram price notification %s failed; retaining it for retry',
+                                     notification.notification_id)
+        except Exception:
+            logger.exception('Telegram price notification check failed')
         time.sleep(900)
