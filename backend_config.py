@@ -20,6 +20,4 @@ def get_backend(value: str | None = None) -> Backend:
         return Backend(normalized_value)
     except ValueError as error:
         supported = ", ".join(backend.value for backend in Backend)
-        raise ValueError(
-            f"BOT_BACKEND must be one of: {supported}; got {normalized_value!r}"
-        ) from error
+        raise ValueError(f"BOT_BACKEND must be one of: {supported}; got {normalized_value!r}") from error

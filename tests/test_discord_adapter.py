@@ -19,9 +19,7 @@ def interaction(discord_context):
     return SimpleNamespace(
         user=SimpleNamespace(id=int(discord_context.user_id), display_name=discord_context.display_name),
         channel_id=123,
-        response=SimpleNamespace(
-            send_message=AsyncMock(), defer=AsyncMock(), edit_message=AsyncMock()
-        ),
+        response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock(), edit_message=AsyncMock()),
         followup=SimpleNamespace(send=AsyncMock()),
     )
 
@@ -125,8 +123,16 @@ def test_alert_scheduler_waits_for_ready_and_stops_on_close(adapter, application
     ids=["falling-price", "small-rising-price"],
 )
 def test_price_defers_lookup_and_formats_quote(
-    adapter, application, interaction, discord_context, market_lookup, market_quote, run_async,
-    current_price, change, expected,
+    adapter,
+    application,
+    interaction,
+    discord_context,
+    market_lookup,
+    market_quote,
+    run_async,
+    current_price,
+    change,
+    expected,
 ):
     def lookup(coin_id, key):
         interaction.response.defer.assert_awaited_once_with(thinking=True)
@@ -170,17 +176,22 @@ def test_price_rejects_unknown_coin_without_lookup(application, discord_context,
 
 def test_coin_creation_is_shared_and_persisted(application, discord_context, new_coin, monkeypatch):
     application.cryptos.clear()
+    monkeypatch.setattr(bot_application, "cmc_id_map", Mock(return_value={"data": [{"id": 43}]}))
     monkeypatch.setattr(
-        bot_application, "cmc_id_map", Mock(return_value={"data": [{"id": 43}]})
-    )
-    monkeypatch.setattr(
-        bot_application, "get_coin_info",
-        Mock(return_value={"data": {"43": {
-            "symbol": new_coin.symbol,
-            "name": new_coin.name,
-            "urls": {"website": [new_coin.website]},
-            "platform": None,
-        }}}),
+        bot_application,
+        "get_coin_info",
+        Mock(
+            return_value={
+                "data": {
+                    "43": {
+                        "symbol": new_coin.symbol,
+                        "name": new_coin.name,
+                        "urls": {"website": [new_coin.website]},
+                        "platform": None,
+                    }
+                }
+            }
+        ),
     )
 
     candidate = application.prepare_new_coin("new")

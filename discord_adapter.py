@@ -48,8 +48,7 @@ class ConfirmNewCoin(discord.ui.View):
             await interaction.response.edit_message(content=str(error), view=None)
             self.stop()
             return
-        log_to_disk(f"Added {self.candidate.symbol} to the bot", "/new_crypto",
-                    context_from_interaction(interaction))
+        log_to_disk(f"Added {self.candidate.symbol} to the bot", "/new_crypto", context_from_interaction(interaction))
         await interaction.response.edit_message(
             content=f"Success. {self.candidate.symbol} has been added to the bot.", view=None
         )
@@ -112,12 +111,16 @@ class DiscordAdapter(discord.Client):
                 logger.exception("Discord /price_notify failed")
                 response = "Could not set that price notification. Try again later."
             else:
-                response += "\nAlerts arrive by DM. Allow DMs from this server's members. Prices are checked every 15 minutes."
+                response += (
+                    "\nAlerts arrive by DM. Allow DMs from this server's members. Prices are checked every 15 minutes."
+                )
             if len(response) <= 2000:
                 await interaction.followup.send(response, ephemeral=True)
             else:
                 attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="notification.txt")
-                await interaction.followup.send("Price notification response is attached.", file=attachment, ephemeral=True)
+                await interaction.followup.send(
+                    "Price notification response is attached.", file=attachment, ephemeral=True
+                )
 
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")
@@ -136,9 +139,7 @@ class DiscordAdapter(discord.Client):
                 await interaction.followup.send("Could not look up that coin. Try again later.", ephemeral=True)
                 return
             view = ConfirmNewCoin(self.bot_application, candidate, interaction.user.id)
-            await interaction.followup.send(
-                f"{candidate.preview()}\n\nAdd this coin?", view=view, ephemeral=True
-            )
+            await interaction.followup.send(f"{candidate.preview()}\n\nAdd this coin?", view=view, ephemeral=True)
 
     async def setup_hook(self) -> None:
         if self.guild_id is None:
@@ -166,8 +167,11 @@ class DiscordAdapter(discord.Client):
                 await user.send(notification.message())
                 await asyncio.to_thread(alerts.acknowledge, notification.notification_id)
             except discord.HTTPException:
-                logger.warning("Could not DM Discord user %s; retaining price notification %s for retry",
-                               notification.user_id, notification.notification_id)
+                logger.warning(
+                    "Could not DM Discord user %s; retaining price notification %s for retry",
+                    notification.user_id,
+                    notification.notification_id,
+                )
             except Exception:
                 logger.exception("Discord price notification %s failed", notification.notification_id)
 

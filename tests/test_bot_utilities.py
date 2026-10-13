@@ -55,9 +55,7 @@ class FakeSession:
 
     def get(self, url: str, params: dict[str, str], timeout: int | None = None) -> FakeResponse:
         self.timeout = timeout
-        self.calls.append(
-            {"url": url, "params": params.copy(), "headers": self.headers.copy()}
-        )
+        self.calls.append({"url": url, "params": params.copy(), "headers": self.headers.copy()})
         if self.error is not None:
             raise self.error
         return FakeResponse(json.dumps(self.payload))
@@ -106,14 +104,10 @@ def test_usage_error_formats_message() -> None:
 
 
 def test_unknown_coin_lists_known_symbols() -> None:
-    assert bot_utilities.unknown_coin("DOGE", ["BTC", "ETH"]) == (
-        "Unknown coin: DOGE\n\nKnown coins:BTC ; ETH"
-    )
+    assert bot_utilities.unknown_coin("DOGE", ["BTC", "ETH"]) == ("Unknown coin: DOGE\n\nKnown coins:BTC ; ETH")
 
 
-def test_log_to_disk_writes_timestamp_and_command(
-    log_file: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_log_to_disk_writes_timestamp_and_command(log_file: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verify log entries include a timestamp and command name."""
     configure_logging(log_file)
     bot_utilities.log_to_disk("Started", "/start")
@@ -139,9 +133,7 @@ def test_log_to_disk_includes_user_details(
     )
     bot_utilities.log_to_disk("Added BTC", "/new_crypto", actor)
 
-    assert log_file.read_text(encoding="utf-8").endswith(
-        "INFO (/new_crypto){Ada Lovelace - 7} Added BTC\n"
-    )
+    assert log_file.read_text(encoding="utf-8").endswith("INFO (/new_crypto){Ada Lovelace - 7} Added BTC\n")
 
 
 def test_log_to_disk_preserves_existing_entries(
@@ -161,10 +153,7 @@ def test_log_to_disk_preserves_existing_entries(
 def test_logging_rotates_at_ten_megabytes(log_file: Path) -> None:
     """Verify the configured log size and retention without writing a large file."""
     logger = configure_logging(log_file)
-    file_handlers = [
-        handler for handler in logger.handlers
-        if isinstance(handler, RotatingFileHandler)
-    ]
+    file_handlers = [handler for handler in logger.handlers if isinstance(handler, RotatingFileHandler)]
 
     assert len(file_handlers) == 1
     assert file_handlers[0].maxBytes == 10_000_000
@@ -207,9 +196,7 @@ def test_get_coin_info_uses_address_or_id(
 ) -> None:
     """Verify info requests query by contract address or CoinMarketCap ID."""
     mock_session.payload = {"data": {"1234": {"id": 1234, "symbol": "TEST"}}}
-    result: CoinMarketCapResponse = bot_utilities.get_coin_info(
-        "0xabc", "test-api-key", id=coin_id
-    )
+    result: CoinMarketCapResponse = bot_utilities.get_coin_info("0xabc", "test-api-key", id=coin_id)
 
     assert result == mock_session.payload
     assert mock_session.calls == [

@@ -15,8 +15,10 @@ def _admin_ids(value: str | None) -> set[int]:
         parsed = literal_eval(value or "")
     except (SyntaxError, ValueError) as error:
         raise ValueError("DISCORD_ADMIN_IDS must be a list of positive user IDs") from error
-    if not isinstance(parsed, list) or not parsed or any(
-        type(user_id) is not int or user_id <= 0 for user_id in parsed
+    if (
+        not isinstance(parsed, list)
+        or not parsed
+        or any(type(user_id) is not int or user_id <= 0 for user_id in parsed)
     ):
         raise ValueError("DISCORD_ADMIN_IDS must be a nonempty list of positive user IDs")
     return set(parsed)

@@ -10,7 +10,6 @@ from bot_application import BotApplication
 from command_context import CommandContext
 from telegram_adapter import TelegramAdapter
 
-
 TELEGRAM_CONTEXT = CommandContext(Backend.TELEGRAM, "7", "-1001", "Ada Lovelace")
 
 

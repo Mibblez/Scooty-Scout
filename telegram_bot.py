@@ -32,7 +32,7 @@ from telegram_adapter import TelegramAdapter, context_from_message
 logger = configure_logging()
 
 # Create necessary folders if they don't exist
-necessary_dirs = ['misc_commands/', 'media/', 'media/user_media/']
+necessary_dirs = ["misc_commands/", "media/", "media/user_media/"]
 for dir in necessary_dirs:
     if not os.path.exists(dir):
         os.mkdir(dir)
@@ -42,18 +42,18 @@ if get_backend() is not Backend.TELEGRAM:
     logger.error("telegram_bot.py can only start when BOT_BACKEND=telegram; use main.py")
     sys.exit(1)
 
-TELEGRAM_API_KEY = os.getenv('TELEGRAM_API_KEY')
-CMC_API_KEY = os.getenv('COINMARKETCAP_API_KEY')
-ETHERSCAN_API_KEY = os.getenv('ETHERSCAN_API_KEY')
+TELEGRAM_API_KEY = os.getenv("TELEGRAM_API_KEY")
+CMC_API_KEY = os.getenv("COINMARKETCAP_API_KEY")
+ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 
 # Read ADMIN_IDS from .env and make sure it is a list of positive integers
 try:
-    ADMIN_IDS = literal_eval(os.getenv('ADMIN_IDS'))
+    ADMIN_IDS = literal_eval(os.getenv("ADMIN_IDS"))
     for id in ADMIN_IDS:
         if type(id) != int:
-            raise ValueError('ValueError: ADMIN_IDS contains a non-interger value')
+            raise ValueError("ValueError: ADMIN_IDS contains a non-interger value")
         elif id < 0:
-            raise ValueError('ValueError: ADMIN_IDS cannot contain negetive intergers as those are not valid IDs')
+            raise ValueError("ValueError: ADMIN_IDS cannot contain negetive intergers as those are not valid IDs")
 except (TypeError, ValueError, SyntaxError) as err:
     logger.error("ADMIN_IDS .env variable missing or malformed: %s", err)
     logger.error("ADMIN_IDS should be a list of integers, such as [1, 2, 3]")
@@ -61,16 +61,15 @@ except (TypeError, ValueError, SyntaxError) as err:
 
 if None in [TELEGRAM_API_KEY, CMC_API_KEY, ETHERSCAN_API_KEY]:
     logger.error(
-        "Missing API key(s) in .env: TELEGRAM_API_KEY, "
-        "COINMARKETCAP_API_KEY and ETHERSCAN_API_KEY are required"
+        "Missing API key(s) in .env: TELEGRAM_API_KEY, " "COINMARKETCAP_API_KEY and ETHERSCAN_API_KEY are required"
     )
     sys.exit(1)
 
-if not os.path.exists('cryptos.json'):
+if not os.path.exists("cryptos.json"):
     logger.error("cryptos.json not found; create it from cryptos_example.json")
     sys.exit(1)
 
-json_file = open('cryptos.json')
+json_file = open("cryptos.json")
 cryptos_json = json.load(json_file)
 
 bot = telebot.TeleBot(TELEGRAM_API_KEY)
@@ -82,18 +81,18 @@ from price_notifications import uses_notification_db
 
 user_states = {}
 
-application = BotApplication(cryptos_json, CMC_API_KEY, notification_path='notifications.db')
+application = BotApplication(cryptos_json, CMC_API_KEY, notification_path="notifications.db")
 TelegramAdapter(bot, application).register()
 
 
 # TODO: add has_dextools in each json entry. show dextools url if has_dextools is set to true
-@bot.message_handler(commands=['info'])
+@bot.message_handler(commands=["info"])
 def info(message):
-    request = message.text.split()[1] if len(message.text.split()) == 2 else ''
+    request = message.text.split()[1] if len(message.text.split()) == 2 else ""
 
     # Too many or too few args
-    if request == '':
-        bot.send_message(message.chat.id, usage_error('/info COIN_NAME'))
+    if request == "":
+        bot.send_message(message.chat.id, usage_error("/info COIN_NAME"))
         return
 
     # Given a coin name thats not in the JSON file
@@ -101,91 +100,93 @@ def info(message):
         bot.send_message(message.chat.id, unknown_coin(request, cryptos_json))
         return
 
-    response = ''
+    response = ""
 
     requested_crypto_info = cryptos_json[request]["INFO"]
 
     for k, v in requested_crypto_info.items():
-        response += f'{k} : {v}\n'
+        response += f"{k} : {v}\n"
 
-    if 'chain' in requested_crypto_info:
-        if requested_crypto_info['chain'] == 'BSC':
+    if "chain" in requested_crypto_info:
+        if requested_crypto_info["chain"] == "BSC":
             response += f"BSC Scan: https://www.bscscan.com/address/{requested_crypto_info['contract_id']}\n"
-            response += f"Dextools: https://www.dextools.io/app/{requested_crypto_info['chain'].lower()}" +\
-                f"/pair-explorer/{requested_crypto_info['contract_id']}"
+            response += (
+                f"Dextools: https://www.dextools.io/app/{requested_crypto_info['chain'].lower()}"
+                + f"/pair-explorer/{requested_crypto_info['contract_id']}"
+            )
         else:
             response += f"CMC: https://coinmarketcap.com/currencies/{cryptos_json[request]['cmc_name']}/"
 
     bot.send_message(message.chat.id, response)
 
 
-@bot.message_handler(commands=['dextools'])
+@bot.message_handler(commands=["dextools"])
 def dextools(message):
-    request = message.text.split()[1] if len(message.text.split()) == 2 else ''
+    request = message.text.split()[1] if len(message.text.split()) == 2 else ""
 
-    if request == '':
-        bot.send_message(message.chat.id, 'https://www.dextools.io/app/')
+    if request == "":
+        bot.send_message(message.chat.id, "https://www.dextools.io/app/")
         return
 
     if request in cryptos_json:
-        bot.send_message(message.chat.id, 'wip')
+        bot.send_message(message.chat.id, "wip")
 
 
-@bot.message_handler(commands=['wen', 'WEN'])
+@bot.message_handler(commands=["wen", "WEN"])
 def wen(message):
-    request = (message.text.split()[1] if len(message.text.split()) == 2 else '').lower()
+    request = (message.text.split()[1] if len(message.text.split()) == 2 else "").lower()
 
-    if request == '':
+    if request == "":
         return
 
-    if request == 'lambo':
-        lambo_models = ['https://www.lamborghini.com/en-en/models/aventador/aventador-svj',
-                        'https://www.lamborghini.com/en-en/models/aventador/aventador-svj-roadster',
-                        'https://www.lamborghini.com/en-en/models/aventador/aventador-lp-780-4-ultimae',
-                        'https://www.lamborghini.com/en-en/models/aventador/aventador-lp-780-4-ultimae-roadster',
-                        'https://www.lamborghini.com/en-en/models/huracan/huracan-evo',
-                        'https://www.lamborghini.com/en-en/models/huracan/huracan-evo-spyder',
-                        'https://www.lamborghini.com/en-en/models/huracan/huracan-evo-rwd',
-                        'https://www.lamborghini.com/en-en/models/huracan/huracan-evo-rwd-spyder',
-                        'https://www.lamborghini.com/en-en/models/huracan/huracan-evo-fluo-capsule',
-                        'https://www.lamborghini.com/en-en/models/huracan/huracan-sto',
-                        'https://ezgo.txtsv.com/personal/golfcarts/freedom-rxv'
-                        ]
+    if request == "lambo":
+        lambo_models = [
+            "https://www.lamborghini.com/en-en/models/aventador/aventador-svj",
+            "https://www.lamborghini.com/en-en/models/aventador/aventador-svj-roadster",
+            "https://www.lamborghini.com/en-en/models/aventador/aventador-lp-780-4-ultimae",
+            "https://www.lamborghini.com/en-en/models/aventador/aventador-lp-780-4-ultimae-roadster",
+            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo",
+            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-spyder",
+            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-rwd",
+            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-rwd-spyder",
+            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-fluo-capsule",
+            "https://www.lamborghini.com/en-en/models/huracan/huracan-sto",
+            "https://ezgo.txtsv.com/personal/golfcarts/freedom-rxv",
+        ]
 
         # Reply with a link to a random lambo model from the lambo_models list
         bot.reply_to(message, lambo_models[random.randrange(len(lambo_models))])
-    elif request == 'moon':
-        replies = ['Ask Musk Daddy\n\nhttps://twitter.com/elonmusk',
-                   'Soon',
-                   'HODL',
-                   'Ask Rob',
-                   'WEN MOON?']
+    elif request == "moon":
+        replies = ["Ask Musk Daddy\n\nhttps://twitter.com/elonmusk", "Soon", "HODL", "Ask Rob", "WEN MOON?"]
 
         # Reply with something stupid from the replies list
         bot.reply_to(message, replies[random.randrange(len(replies))])
-        if os.path.exists('media/wen_moon.ogg'):
-            bot.send_audio(message.chat.id, audio=open('media/wen_moon.ogg', 'rb'))
-    elif request == 'aston':
-        aston_models = ['https://www.astonmartin.com/en-us/models/aston-martin-valkyrie',
-                        'https://www.astonmartin.com/en-us/models/dbx',
-                        'https://www.astonmartin.com/en-us/models/new-vantage',
-                        'https://www.astonmartin.com/en-us/models/db11',
-                        'https://www.astonmartin.com/en-us/models/dbs-superleggera']
+        if os.path.exists("media/wen_moon.ogg"):
+            bot.send_audio(message.chat.id, audio=open("media/wen_moon.ogg", "rb"))
+    elif request == "aston":
+        aston_models = [
+            "https://www.astonmartin.com/en-us/models/aston-martin-valkyrie",
+            "https://www.astonmartin.com/en-us/models/dbx",
+            "https://www.astonmartin.com/en-us/models/new-vantage",
+            "https://www.astonmartin.com/en-us/models/db11",
+            "https://www.astonmartin.com/en-us/models/dbs-superleggera",
+        ]
         bot.reply_to(message, aston_models[random.randrange(len(aston_models))])
 
 
-@bot.message_handler(commands=['start'])
+@bot.message_handler(commands=["start"])
 def start_bot(message):
     user_id = message.from_user.id
 
-    connection = sqlite3.connect('notifications.db')
+    connection = sqlite3.connect("notifications.db")
     cursor = connection.cursor()
 
     # Create new user in user db if not already present
     cursor.execute(f"SELECT user_id FROM users WHERE user_id={user_id}")
     if cursor.fetchone() is None:
-        cursor.execute('INSERT INTO users VALUES '
-                       f"({user_id}, '{message.from_user.first_name} {message.from_user.last_name}')")
+        cursor.execute(
+            "INSERT INTO users VALUES " f"({user_id}, '{message.from_user.first_name} {message.from_user.last_name}')"
+        )
 
     connection.commit()
     connection.close()
@@ -194,148 +195,152 @@ def start_bot(message):
 
 
 # TODO:  Different gas amounts with subcommands(normal transaction, uniswap, erc20, etc)
-@bot.message_handler(commands=['ethgas'])
+@bot.message_handler(commands=["ethgas"])
 def ethgas(message):
-    gas_url = 'https://api.etherscan.io/api'
-    gas_parameters = {
-        'module': 'gastracker',
-        'action': 'gasoracle',
-        'apikey': ETHERSCAN_API_KEY
-    }
+    gas_url = "https://api.etherscan.io/api"
+    gas_parameters = {"module": "gastracker", "action": "gasoracle", "apikey": ETHERSCAN_API_KEY}
 
-    stats_url = 'https://api.etherscan.io/api'
-    stats_parameters = {
-        'module': 'stats',
-        'action': 'ethprice',
-        'apikey': ETHERSCAN_API_KEY
-    }
+    stats_url = "https://api.etherscan.io/api"
+    stats_parameters = {"module": "stats", "action": "ethprice", "apikey": ETHERSCAN_API_KEY}
 
     session = Session()
 
     try:
         gas_response = session.get(gas_url, params=gas_parameters)
-        gas_data = json.loads(gas_response.text)['result']
+        gas_data = json.loads(gas_response.text)["result"]
 
         stats_response = session.get(stats_url, params=stats_parameters)
-        stats_data = json.loads(stats_response.text)['result']
+        stats_data = json.loads(stats_response.text)["result"]
     except (ConnectionError, Timeout, TooManyRedirects) as e:
         bot.send_message(message.chat.id, "Could not reach API. Try again later.")
         logger.warning("Etherscan gas request failed: %s", type(e).__name__)
         return
 
-    gwei_to_usd = 0.000000001 * float(stats_data['ethusd'])
+    gwei_to_usd = 0.000000001 * float(stats_data["ethusd"])
     uniswap_gas_limit = 152000
 
-    safe_gas_usd = round(float(gas_data['SafeGasPrice']) * gwei_to_usd * uniswap_gas_limit, 4)
-    proposed_gas_usd = round(float(gas_data['ProposeGasPrice']) * gwei_to_usd * uniswap_gas_limit, 4)
-    fast_gas_usd = round(float(gas_data['FastGasPrice']) * gwei_to_usd * uniswap_gas_limit, 4)
+    safe_gas_usd = round(float(gas_data["SafeGasPrice"]) * gwei_to_usd * uniswap_gas_limit, 4)
+    proposed_gas_usd = round(float(gas_data["ProposeGasPrice"]) * gwei_to_usd * uniswap_gas_limit, 4)
+    fast_gas_usd = round(float(gas_data["FastGasPrice"]) * gwei_to_usd * uniswap_gas_limit, 4)
 
-    bot_message = f"Uniswap Gas ({format(uniswap_gas_limit, ',')} gas limit)\n" +\
-        f"Safe: {gas_data['SafeGasPrice']} gwei (${safe_gas_usd})\n" +\
-        f"Proposed: {gas_data['ProposeGasPrice']} gwei (${proposed_gas_usd})\n" +\
-        f"Fast: {gas_data['FastGasPrice']} gwei (${fast_gas_usd})"
+    bot_message = (
+        f"Uniswap Gas ({format(uniswap_gas_limit, ',')} gas limit)\n"
+        + f"Safe: {gas_data['SafeGasPrice']} gwei (${safe_gas_usd})\n"
+        + f"Proposed: {gas_data['ProposeGasPrice']} gwei (${proposed_gas_usd})\n"
+        + f"Fast: {gas_data['FastGasPrice']} gwei (${fast_gas_usd})"
+    )
 
     bot.send_message(message.chat.id, bot_message)
 
 
-@bot.message_handler(func=lambda message: re.match('^/(nmc|new_media_command)$', message.caption.split()[0]),
-                     content_types=['photo'])
+@bot.message_handler(
+    func=lambda message: re.match("^/(nmc|new_media_command)$", message.caption.split()[0]), content_types=["photo"]
+)
 def new_media_command(message):
     if message.from_user.id not in ADMIN_IDS:
-        bot.reply_to(message, 'Only admins can make new commands')
+        bot.reply_to(message, "Only admins can make new commands")
         return
 
     message_split = message.caption.split()
 
-    command_name = ''
-    command_file_name = ''
+    command_name = ""
+    command_file_name = ""
 
     if len(message_split) == 2:
         command_name = message_split[1]
-        command_file_name = 'misc_commands/user_commands.py'
+        command_file_name = "misc_commands/user_commands.py"
     elif len(message_split) == 3:
         command_name = message_split[1]
-        command_file_name = f'misc_commands/{message_split[2]}.py'
+        command_file_name = f"misc_commands/{message_split[2]}.py"
         if not os.path.exists(command_file_name):
             # Don't allow users to create new files
             return
     else:
-        bot.send_message(message.chat.id,
-                         usage_error("/new_media_command COMMAND_NAME COMMAND_FILE=user_commands"))
+        bot.send_message(message.chat.id, usage_error("/new_media_command COMMAND_NAME COMMAND_FILE=user_commands"))
         return
 
-    if not re.match('^[^_][A-Za-z0-9_]*$', command_name):
-        bot.reply_to(message, "Command name must only contain aplhanumeric characters and underscores "
-                              "and cannot start with an underscore")
+    if not re.match("^[^_][A-Za-z0-9_]*$", command_name):
+        bot.reply_to(
+            message,
+            "Command name must only contain aplhanumeric characters and underscores "
+            "and cannot start with an underscore",
+        )
         return
 
     # Make sure no file with the same name exists in the media folder
-    for file_path in chain(os.scandir('media/'), os.scandir('media/user_media/')):
+    for file_path in chain(os.scandir("media/"), os.scandir("media/user_media/")):
         if os.path.splitext(os.path.basename(file_path))[0].lower() == command_name.lower():
-            bot.send_message(message.chat.id, f'Cannot create /{command_name}. Command already exists')
+            bot.send_message(message.chat.id, f"Cannot create /{command_name}. Command already exists")
             return
 
     # Get attached file
     file_info = bot.get_file(message.photo[-1].file_id)
-    file = requests.get('https://api.telegram.org/file/bot{0}/{1}'.
-                        format(TELEGRAM_API_KEY, file_info.file_path), stream=True)
+    file = requests.get(
+        "https://api.telegram.org/file/bot{0}/{1}".format(TELEGRAM_API_KEY, file_info.file_path), stream=True
+    )
 
     # Save attached file to disk
-    with open(f'media/user_media/{command_name}.jpg', 'wb') as f:
+    with open(f"media/user_media/{command_name}.jpg", "wb") as f:
         shutil.copyfileobj(file.raw, f)
 
-    command_str = f"\n\n@bot.message_handler(commands=['{command_name}'])\n" +\
-                  f"def uc_{command_name}(message):\n" +\
-                  f"    bot.send_photo(message.chat.id, open('media/user_media/{command_name}.jpg', 'rb'))\n"
+    command_str = (
+        f"\n\n@bot.message_handler(commands=['{command_name}'])\n"
+        + f"def uc_{command_name}(message):\n"
+        + f"    bot.send_photo(message.chat.id, open('media/user_media/{command_name}.jpg', 'rb'))\n"
+    )
 
     # Feed command_str to the interpreter so that the command is available right away
     exec(command_str)
 
     # Append command to command file
-    with open(command_file_name, 'a+') as command_file:
+    with open(command_file_name, "a+") as command_file:
         command_file.write(command_str)
 
     bot.reply_to(message, f"New command created: /{command_name}")
 
-    log_to_disk(f'Added new media command /{command_name}', '/new_media_command', context_from_message(message))
+    log_to_disk(f"Added new media command /{command_name}", "/new_media_command", context_from_message(message))
 
 
-@bot.message_handler(commands=['new_twitter_video_command', 'ntv'])
+@bot.message_handler(commands=["new_twitter_video_command", "ntv"])
 def new_media_command_twitter_video(message):
     if message.from_user.id not in ADMIN_IDS:
-        bot.reply_to(message, 'Only admins can make new commands')
+        bot.reply_to(message, "Only admins can make new commands")
         return
 
     message_split = message.text.split()
 
     if len(message_split) != 3:
-        bot.send_message(message.chat.id,
-                         usage_error("/new_twitter_video_command COMMAND_NAME TWITTER_VIDEO_URL"))
+        bot.send_message(message.chat.id, usage_error("/new_twitter_video_command COMMAND_NAME TWITTER_VIDEO_URL"))
         return
 
     command_name = message_split[1]
     twitter_vid_url = message_split[2]
 
-    if not re.match('^http[s]?://twitter.com/i/status/[0-9]+$', twitter_vid_url):
-        bot.reply_to(message, "Invalid URL. Get the URL for the video my right clicking it"
-                              "and clicking 'Copy Video Address'")
+    if not re.match("^http[s]?://twitter.com/i/status/[0-9]+$", twitter_vid_url):
+        bot.reply_to(
+            message, "Invalid URL. Get the URL for the video my right clicking it" "and clicking 'Copy Video Address'"
+        )
         return
 
-    if not re.match('^[^_][A-Za-z0-9_]*$', command_name):
-        bot.reply_to(message, "Command name must only contain aplhanumeric characters and underscores "
-                              "and cannot start with an underscore")
+    if not re.match("^[^_][A-Za-z0-9_]*$", command_name):
+        bot.reply_to(
+            message,
+            "Command name must only contain aplhanumeric characters and underscores "
+            "and cannot start with an underscore",
+        )
         return
 
     # Make sure no command with the same name exists in the media folder
-    for file_path in chain(os.scandir('media/'), os.scandir('media/user_media/')):
+    for file_path in chain(os.scandir("media/"), os.scandir("media/user_media/")):
         if os.path.splitext(os.path.basename(file_path))[0].lower() == command_name.lower():
-            bot.send_message(message.chat.id, f'Cannot create /{command_name}. Command already exists')
+            bot.send_message(message.chat.id, f"Cannot create /{command_name}. Command already exists")
             return
 
-    ydl_opts = {'outtmpl': f"media/user_media/{command_name}" + ".%(ext)s",
-                'logger': TwitterVideoLogger(),
-                'progress_hooks': [twitter_download_hook]
-                }
+    ydl_opts = {
+        "outtmpl": f"media/user_media/{command_name}" + ".%(ext)s",
+        "logger": TwitterVideoLogger(),
+        "progress_hooks": [twitter_download_hook],
+    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -343,69 +348,73 @@ def new_media_command_twitter_video(message):
     except yt_dlp.utils.DownloadError:
         logger.warning(
             "Video command /%s download failed for user %s",
-            command_name, message.from_user.id,
+            command_name,
+            message.from_user.id,
         )
         bot.reply_to(message, "Could not download video. Maybe the provided URL is invalid?")
         return
 
     bot.reply_to(message, f"New command created: /{command_name}")
 
-    log_to_disk(f'Added new twitter video command /{command_name}',
-                '/new_twitter_video_command', context_from_message(message))
+    log_to_disk(
+        f"Added new twitter video command /{command_name}", "/new_twitter_video_command", context_from_message(message)
+    )
 
 
 def twitter_download_hook(d):
-    if d['status'] == 'finished':
-        file_name = os.path.basename(d['filename'])
+    if d["status"] == "finished":
+        file_name = os.path.basename(d["filename"])
         command_name, file_extension = os.path.splitext(file_name)
 
-        if file_extension != '.mp4':
+        if file_extension != ".mp4":
             raise yt_dlp.utils.DownloadError("Invalid file extension")
 
-        command_str = f"\n\n@bot.message_handler(commands=['{command_name}'])\n" +\
-                      f"def uc_{command_name}(message):\n" +\
-                      f"    bot.send_video(message.chat.id, open('media/user_media/{file_name}', 'rb'))\n"
+        command_str = (
+            f"\n\n@bot.message_handler(commands=['{command_name}'])\n"
+            + f"def uc_{command_name}(message):\n"
+            + f"    bot.send_video(message.chat.id, open('media/user_media/{file_name}', 'rb'))\n"
+        )
 
         exec(command_str)
 
         # Append command to command file
-        with open('misc_commands/user_commands.py', 'a+') as command_file:
+        with open("misc_commands/user_commands.py", "a+") as command_file:
             command_file.write(command_str)
 
 
-@bot.message_handler(commands=['list_commands', 'lc'])
-def list_commands_in_file(message, dir='misc_commands'):
+@bot.message_handler(commands=["list_commands", "lc"])
+def list_commands_in_file(message, dir="misc_commands"):
     if not os.path.exists(dir):
         return
 
-    request = message.text.split()[1] if len(message.text.split()) == 2 else ''
+    request = message.text.split()[1] if len(message.text.split()) == 2 else ""
 
     # Given a command file that does not exist or too many or too few args
-    if (request + '.py') not in os.listdir(dir) or request == '':
-        response = 'Usage: /list_commands COMMANDS_FILE\nKnown command files: '
+    if (request + ".py") not in os.listdir(dir) or request == "":
+        response = "Usage: /list_commands COMMANDS_FILE\nKnown command files: "
 
         # Iterate over directories containing command files and strip the file extension from them
-        python_files = list(filter(lambda file: file.endswith('.py'), os.listdir(dir)))
+        python_files = list(filter(lambda file: file.endswith(".py"), os.listdir(dir)))
         python_files = [os.path.splitext(x)[0] for x in python_files]
 
-        response += ' | '.join(python_files)
+        response += " | ".join(python_files)
         bot.send_message(message.chat.id, response)
 
         return
 
-    with open(f'{dir}/{request}.py', 'r') as f:
+    with open(f"{dir}/{request}.py", "r") as f:
         commands = ""
 
         # Iterate over every bot command line
-        for line in (x for x in f if x.startswith('@bot.')):
+        for line in (x for x in f if x.startswith("@bot.")):
             matches = re.findall(r"['|\"](.*?)['|\"]", line)
-            commands += (' | '.join(matches)) + " /// "
+            commands += (" | ".join(matches)) + " /// "
 
     bot.send_message(message.chat.id, f"Known commands in {request}:\n{commands}")
 
 
 # Load bot commands from each python file in misc_commands directory
-for command_file in filter(lambda file: file.endswith('.py'), os.listdir('misc_commands')):
+for command_file in filter(lambda file: file.endswith(".py"), os.listdir("misc_commands")):
     exec(open(f"misc_commands/{command_file}").read())
 
 
@@ -414,13 +423,13 @@ def handle_new_crypto(message):
 
     # Check if the user is currently using a stated command
     if user_state := user_states.get(user_id):
-        return True if user_state.current_command == 'new_crypto' else False
+        return True if user_state.current_command == "new_crypto" else False
 
     # See if the user is starting this command
-    starting_command = message.text.split()[0] == '/new_crypto'
+    starting_command = message.text.split()[0] == "/new_crypto"
 
     if starting_command and user_id in ADMIN_IDS:
-        user_states[user_id] = UserState('new_crypto')
+        user_states[user_id] = UserState("new_crypto")
         return True
 
     return False
@@ -432,9 +441,9 @@ def new_crypto(message):
     command_state = user_states[user_id].state
 
     if command_state == 0:
-        identifier = message.text.split()[1] if len(message.text.split()) == 2 else ''
+        identifier = message.text.split()[1] if len(message.text.split()) == 2 else ""
         if not identifier:
-            bot.send_message(message.chat.id, usage_error('/new_crypto [CONTRACT_ADDRESS|SYMBOL]'))
+            bot.send_message(message.chat.id, usage_error("/new_crypto [CONTRACT_ADDRESS|SYMBOL]"))
             del user_states[user_id]
             return
         try:
@@ -454,19 +463,18 @@ def new_crypto(message):
         bot.send_message(message.chat.id, f"{candidate.preview()}\n\nIs this correct? (y/n)")
         return
 
-    answer = message.text.strip().upper() if message.text else ''
-    if answer == 'Y':
+    answer = message.text.strip().upper() if message.text else ""
+    if answer == "Y":
         candidate = user_states[user_id].new_crypto_tmp
         try:
             application.add_coin(candidate)
         except (CoinCreationError, OSError) as error:
             bot.reply_to(message, str(error))
         else:
-            bot.reply_to(message, 'Success. The new coin has been added to the bot.')
-            log_to_disk(f'Added {candidate.symbol} to the bot',
-                        '/new_crypto', context_from_message(message))
+            bot.reply_to(message, "Success. The new coin has been added to the bot.")
+            log_to_disk(f"Added {candidate.symbol} to the bot", "/new_crypto", context_from_message(message))
     else:
-        bot.reply_to(message, 'Aborting command.')
+        bot.reply_to(message, "Aborting command.")
     del user_states[user_id]
 
 
@@ -475,13 +483,13 @@ def handle_update_crypto(message):
 
     # Check if the user is currently using a stated command
     if user_state := user_states.get(user_id):
-        return True if user_state.current_command == 'update_crypto' else False
+        return True if user_state.current_command == "update_crypto" else False
 
     # See if the user is starting this command
-    starting_command = (message.text.split()[0] == '/update_crypto')
+    starting_command = message.text.split()[0] == "/update_crypto"
 
     if starting_command and user_id in ADMIN_IDS:
-        user_states[user_id] = UserState('update_crypto')
+        user_states[user_id] = UserState("update_crypto")
         return True
 
     return False
@@ -494,9 +502,9 @@ def update_crypto(message):
     command_state = user_states[user_id].state
 
     if command_state == 0:
-        coin_symbol = (message.text.split()[1] if len(message.text.split()) == 2 else '').upper()
+        coin_symbol = (message.text.split()[1] if len(message.text.split()) == 2 else "").upper()
 
-        if coin_symbol == '':
+        if coin_symbol == "":
             bot.send_message(message.chat.id, usage_error("/update_crypto COIN_SYMBOL"))
             del user_states[user_id]
             return
@@ -507,25 +515,27 @@ def update_crypto(message):
 
         user_states[user_id].new_crypto_tmp = [coin_symbol, cryptos_json[coin_symbol]]
 
-        reply = f'--- {coin_symbol} Info ---\n'
+        reply = f"--- {coin_symbol} Info ---\n"
         index = 0
         for k, v in cryptos_json[coin_symbol]["INFO"].items():
             reply += f"[{index}] - {k}: {v}\n"
             index += 1
 
-        reply += f"Enter the index of the entry you want to change or enter {index} to add a new entry.\n" +\
-                 "Enter anything else to abort."
+        reply += (
+            f"Enter the index of the entry you want to change or enter {index} to add a new entry.\n"
+            + "Enter anything else to abort."
+        )
         user_states[user_id].state = 1
 
         bot.reply_to(message, reply)
     elif command_state == 1:
-        answer = (message.text if len(message.text.split()) == 1 else '')
+        answer = message.text if len(message.text.split()) == 1 else ""
 
         current_entries_len = len(user_states[user_id].new_crypto_tmp[1]["INFO"])
 
         if (not answer.isdigit()) or (int(answer) < 0) or (int(answer) > current_entries_len):
             del user_states[user_id]
-            bot.reply_to(message, 'Aborting command.')
+            bot.reply_to(message, "Aborting command.")
             return
 
         answer = int(answer)
@@ -541,29 +551,29 @@ def update_crypto(message):
             user_states[user_id].additional_command_info = value_to_change
             user_states[user_id].state = 3
     elif command_state == 2:
-        answer = (message.text if message.text is not None else '')
+        answer = message.text if message.text is not None else ""
 
-        if (answer == '') or (answer.upper() == 'ABORT'):
+        if (answer == "") or (answer.upper() == "ABORT"):
             del user_states[user_id]
-            bot.reply_to(message, 'Aborting command.')
+            bot.reply_to(message, "Aborting command.")
             return
 
         user_states[user_id].additional_command_info = answer
         bot.send_message(message.chat.id, f"Enter a value for {answer}.")
         user_states[user_id].state = 3
     elif command_state == 3:
-        answer = (message.text if message.text is not None else '')
+        answer = message.text if message.text is not None else ""
 
-        if answer == '' or (answer.upper() == 'ABORT'):
+        if answer == "" or (answer.upper() == "ABORT"):
             del user_states[user_id]
-            bot.reply_to(message, 'Aborting command.')
+            bot.reply_to(message, "Aborting command.")
             return
 
-        user_states[user_id].new_crypto_tmp[1]['INFO'][user_states[user_id].additional_command_info] = answer
+        user_states[user_id].new_crypto_tmp[1]["INFO"][user_states[user_id].additional_command_info] = answer
 
         coin_symbol = user_states[user_id].new_crypto_tmp[0]
         index = 0
-        reply = f'--- {coin_symbol} Updated Info ---\n'
+        reply = f"--- {coin_symbol} Updated Info ---\n"
         for k, v in cryptos_json[coin_symbol]["INFO"].items():
             reply += f"[{index}] - {k}: {v}\n"
             index += 1
@@ -573,28 +583,31 @@ def update_crypto(message):
 
         user_states[user_id].state = 4
     elif command_state == 4:
-        answer = (message.text if len(message.text.split()) == 1 else '').upper()
+        answer = (message.text if len(message.text.split()) == 1 else "").upper()
 
-        if answer == 'Y':
+        if answer == "Y":
             cryptos_json[user_states[user_id].new_crypto_tmp[0]] = user_states[user_id].new_crypto_tmp[1]
 
             # Dump cryptos_json to disk
-            with open('cryptos.json', 'w') as f:
+            with open("cryptos.json", "w") as f:
                 json.dump(cryptos_json, f, indent=4)
 
-            bot.reply_to(message, 'Coin successfully updated')
-            log_to_disk(f'Updated {user_states[user_id].new_crypto_tmp[0]}',
-                        '/update_crypto', context_from_message(message))
+            bot.reply_to(message, "Coin successfully updated")
+            log_to_disk(
+                f"Updated {user_states[user_id].new_crypto_tmp[0]}", "/update_crypto", context_from_message(message)
+            )
         else:
-            bot.reply_to(message, 'Aborting command.')
+            bot.reply_to(message, "Aborting command.")
 
         del user_states[user_id]
 
 
 def handle_at_everyone(message):
-    if message.from_user.id not in ADMIN_IDS \
-       or not message.text.startswith('/everyone ') \
-       or message.chat.type == "private":
+    if (
+        message.from_user.id not in ADMIN_IDS
+        or not message.text.startswith("/everyone ")
+        or message.chat.type == "private"
+    ):
         return False
 
     return True
@@ -606,20 +619,20 @@ def at_everyone(cursor, message):
     chat_id = message.chat.id
 
     # Get the first name and user ID for all users in this group who are registered for /everyone notifications
-    cursor.execute(f'SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id={chat_id}')
+    cursor.execute(f"SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id={chat_id}")
 
     if (result := cursor.fetchone()) is not None:
         # User entries are split up by semicolons
-        user_entries = result[0].split(';')
+        user_entries = result[0].split(";")
 
-        response = ''
+        response = ""
         for user_entry in user_entries:
             # First name and user ID are seperated by a |
-            first_name, user_id = user_entry.split('|')
+            first_name, user_id = user_entry.split("|")
 
-            response += f'[{first_name}](tg://user?id={user_id}) '
+            response += f"[{first_name}](tg://user?id={user_id}) "
 
-        bot.reply_to(message, response, parse_mode='Markdown')
+        bot.reply_to(message, response, parse_mode="Markdown")
 
 
 def message_polling():
@@ -653,5 +666,5 @@ def run() -> None:
     price_checker_thread.start()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run()

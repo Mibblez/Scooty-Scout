@@ -13,13 +13,9 @@ def configure_logging(log_path: str | Path = "botlog.log") -> logging.Logger:
 
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    formatter = logging.Formatter(
-        "[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
+    formatter = logging.Formatter("[%(asctime)s] %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
-    file_handler = RotatingFileHandler(
-        log_path, maxBytes=10_000_000, backupCount=3, encoding="utf-8"
-    )
+    file_handler = RotatingFileHandler(log_path, maxBytes=10_000_000, backupCount=3, encoding="utf-8")
     file_handler.set_name("scooty_scout_file")
     file_handler.setFormatter(formatter)
     terminal = logging.StreamHandler()

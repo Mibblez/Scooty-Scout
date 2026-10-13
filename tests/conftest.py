@@ -15,11 +15,7 @@ from command_context import CommandContext
 @pytest.fixture
 def market_quote():
     def quote(price, change=0):
-        return {
-            "data": {
-                "42": {"quote": {"USD": {"price": price, "percent_change_24h": change}}}
-            }
-        }
+        return {"data": {"42": {"quote": {"USD": {"price": price, "percent_change_24h": change}}}}}
 
     return quote
 

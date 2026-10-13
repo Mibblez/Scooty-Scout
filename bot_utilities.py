@@ -6,7 +6,6 @@ from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 
 from command_context import CommandContext
 
-
 logger = logging.getLogger("scooty_scout")
 
 
@@ -36,33 +35,30 @@ class TwitterVideoLogger(object):
         logger.error("Video download error: %s", msg)
 
 
-def usage_error(usage_str: str = '') -> str:
-    return f'Usage\n{usage_str}'
+def usage_error(usage_str: str = "") -> str:
+    return f"Usage\n{usage_str}"
 
 
 def unknown_coin(invalid_coin_str: object, known_coins: Iterable[str]) -> str:
-    return (f"Unknown coin: {invalid_coin_str}\n\nKnown coins:"
-            f"{' ; '.join(known_coins)}")
+    return f"Unknown coin: {invalid_coin_str}\n\nKnown coins:" f"{' ; '.join(known_coins)}"
 
 
 def log_to_disk(log_message, command_name, actor: CommandContext | None = None):
     """Record an admin change, including the actor when one is available."""
     if actor is not None:
-        log_message = f'{{{actor.display_name} - {actor.user_id}}} {log_message}'
+        log_message = f"{{{actor.display_name} - {actor.user_id}}} {log_message}"
 
     logger.info("(%s)%s", command_name, log_message)
 
 
 def get_coin_data(coin_id, cmc_api_key):
-    url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest'
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
     headers = {
-        'Accepts': 'application/json',
-        'X-CMC_PRO_API_KEY': cmc_api_key,
+        "Accepts": "application/json",
+        "X-CMC_PRO_API_KEY": cmc_api_key,
     }
 
-    parameters = {
-        'id': coin_id
-    }
+    parameters = {"id": coin_id}
 
     session = Session()
     session.headers.update(headers)
@@ -76,22 +72,18 @@ def get_coin_data(coin_id, cmc_api_key):
         return None
 
 
-#FIXME: Make contract_address and id optional args
+# FIXME: Make contract_address and id optional args
 def get_coin_info(contract_address, cmc_api_key, id=None):
-    url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/info'
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/info"
     headers = {
-        'Accepts': 'application/json',
-        'X-CMC_PRO_API_KEY': cmc_api_key,
+        "Accepts": "application/json",
+        "X-CMC_PRO_API_KEY": cmc_api_key,
     }
 
     if id is None:
-        parameters = {
-            'address': contract_address
-        }
+        parameters = {"address": contract_address}
     else:
-        parameters = {
-            'id': id
-        }
+        parameters = {"id": id}
 
     session = Session()
     session.headers.update(headers)
@@ -106,14 +98,14 @@ def get_coin_info(contract_address, cmc_api_key, id=None):
 
 
 def cmc_id_map(symbol, cmc_api_key):
-    url = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/map'
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/map"
     headers = {
-        'Accepts': 'application/json',
-        'X-CMC_PRO_API_KEY': cmc_api_key,
+        "Accepts": "application/json",
+        "X-CMC_PRO_API_KEY": cmc_api_key,
     }
 
     parameters = {
-        'symbol': symbol,
+        "symbol": symbol,
     }
 
     session = Session()
