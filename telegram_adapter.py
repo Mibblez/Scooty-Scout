@@ -59,3 +59,15 @@ class TelegramAdapter:
             except PriceAlertError as error:
                 response = str(error)
             self.bot.reply_to(message, response)
+
+        @self.bot.message_handler(commands=["delete_notification", "dnot"])
+        def delete_notification(message):
+            arguments = message.text.split()
+            if len(arguments) != 2:
+                self.bot.send_message(message.chat.id, usage_error("/delete_notification COIN_SYMBOL"))
+                return
+            try:
+                response = self.application.delete_notification(context_from_message(message), arguments[1])
+            except PriceAlertError as error:
+                response = str(error)
+            self.bot.reply_to(message, response)

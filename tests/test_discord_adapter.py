@@ -77,6 +77,33 @@ def test_check_notifications_attaches_long_lists_privately(adapter, application,
     assert attachment.fp.read().decode("utf-8") == long_response
 
 
+def test_delete_notification_replies_privately(adapter, application, interaction, discord_context, run_async):
+    response = "Notification for TST deleted"
+    application.delete_notification = Mock(return_value=response)
+    command = adapter.tree.get_command("delete_notification")
+
+    run_async(command.callback(interaction, "tst"))
+
+    application.delete_notification.assert_called_once_with(discord_context, "tst")
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    interaction.followup.send.assert_awaited_once_with(response, ephemeral=True)
+
+
+def test_checker_skips_alert_canceled_during_user_lookup(
+    adapter, application, recipient, discord_context, triggered_alert, run_async
+):
+    async def cancel_during_user_lookup(_user_id):
+        application.delete_notification(discord_context, triggered_alert.coin)
+        return recipient
+
+    adapter.fetch_user.side_effect = cancel_during_user_lookup
+
+    run_async(adapter.check_price_notifications())
+
+    recipient.send.assert_not_awaited()
+    assert application.check_notifications(discord_context) == "No notifications set"
+
+
 def test_price_notify_registers_user_and_confirms_privately(adapter, application, interaction, run_async):
     command = adapter.tree.get_command("price_notify")
 

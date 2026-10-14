@@ -5,7 +5,6 @@ import logging
 import functools
 
 import globals
-from bot_utilities import usage_error, unknown_coin
 from price_alerts import PriceAlerts
 
 logger = logging.getLogger("scooty_scout")
@@ -108,39 +107,13 @@ def at_everyone_opt_out(cursor, message):
     globals.bot.reply_to(message, "You won't be notified when someone uses the /everyone command")
 
 
-@globals.bot.message_handler(commands=["delete_notification", "dnot"])
-@uses_notification_db
-def delete_notification(cursor, message):
-    request = message.text.split()[1:2] if len(message.text.split()) == 2 else ""
-
-    if request == "":
-        # Too many or too few args
-        globals.bot.send_message(message.chat.id, usage_error("/delete_notification COIN_NAME"))
-        return
-
-    coin = request[0].upper()
-    if coin not in globals.cryptos_json:
-        # Given a coin name thats not in the JSON file
-        globals.bot.send_message(message.chat.id, unknown_coin(request, globals.cryptos_json))
-        return
-
-    user_id = message.from_user.id
-
-    cursor.execute(f"SELECT notification_id from price_notifications WHERE user_id={user_id} AND coin='{coin}'")
-    if cursor.fetchone() is None:
-        globals.bot.reply_to(message, f"You don't have a notification set for {coin}")
-        return
-
-    cursor.execute(f"DELETE FROM price_notifications WHERE user_id={user_id} AND coin='{coin}'")
-
-    globals.bot.reply_to(message, f"Notification for {coin} deleted")
-
-
 def check_price_notifications(alerts: PriceAlerts):
     while True:
         try:
             for notification in alerts.due_notifications():
                 try:
+                    if not alerts.is_pending(notification.notification_id):
+                        continue
                     globals.bot.send_message(notification.user_id, notification.message())
                     alerts.acknowledge(notification.notification_id)
                 except Exception:

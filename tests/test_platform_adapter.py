@@ -35,6 +35,7 @@ def telegram_application():
         price=Mock(return_value="Price response"),
         price_notify=Mock(return_value="Notification response"),
         check_notifications=Mock(return_value="TST at $12.0\n"),
+        delete_notification=Mock(return_value="Notification for TST deleted"),
         price_alerts=SimpleNamespace(has_user=Mock(return_value=True)),
     )
 
@@ -77,6 +78,30 @@ def test_telegram_check_notifications_uses_shared_logic(telegram_bot, telegram_a
 
     telegram_application.check_notifications.assert_called_once_with(TELEGRAM_CONTEXT)
     telegram_bot.reply_to.assert_called_once_with(message, "TST at $12.0\n")
+
+
+@pytest.mark.parametrize("command", ["delete_notification", "dnot"], ids=["full-command", "alias"])
+def test_telegram_delete_notification_uses_shared_logic(telegram_bot, telegram_application, message, command):
+    message.text = f"/{command} tst"
+
+    telegram_bot.handlers[command](message)
+
+    telegram_application.delete_notification.assert_called_once_with(TELEGRAM_CONTEXT, "tst")
+    telegram_bot.reply_to.assert_called_once_with(message, "Notification for TST deleted")
+
+
+@pytest.mark.parametrize(
+    "command_text",
+    ["/delete_notification", "/delete_notification BTC ETH"],
+    ids=["missing-symbol", "too-many-arguments"],
+)
+def test_telegram_delete_notification_validates_arguments(telegram_bot, telegram_application, message, command_text):
+    message.text = command_text
+
+    telegram_bot.handlers["delete_notification"](message)
+
+    telegram_application.delete_notification.assert_not_called()
+    telegram_bot.send_message.assert_called_once_with(message.chat.id, "Usage\n/delete_notification COIN_SYMBOL")
 
 
 @pytest.mark.parametrize(

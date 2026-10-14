@@ -59,6 +59,26 @@ class PriceAlerts:
                 (context.user_id,),
             ).fetchall()
 
+    def delete_notification(self, context: CommandContext, symbol: str) -> str:
+        """Delete only the caller's alert for the requested coin."""
+        symbol = symbol.strip().upper()
+        with closing(sqlite3.connect(self.db_path)) as connection, connection:
+            cursor = connection.execute(
+                "DELETE FROM price_notifications WHERE user_id = ? AND coin = ?",
+                (context.user_id, symbol),
+            )
+            if cursor.rowcount == 0:
+                return f"You don't have a notification set for {symbol}"
+        return f"Notification for {symbol} deleted"
+
+    def is_pending(self, notification_id: int) -> bool:
+        """Check that an alert has not been canceled or replaced before delivery."""
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            cursor = connection.execute(
+                "SELECT 1 FROM price_notifications WHERE notification_id = ?", (notification_id,)
+            )
+            return cursor.fetchone() is not None
+
     @staticmethod
     def _price(data: Any, coin_id: str) -> float:
         price = float(data["data"][coin_id]["quote"]["USD"]["price"])

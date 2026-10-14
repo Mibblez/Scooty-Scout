@@ -30,6 +30,52 @@ def test_check_notifications_lists_only_callers_alerts(application, discord_cont
     market_lookup.assert_not_called()
 
 
+def test_delete_notification_removes_only_matching_user_and_coin(application, discord_context, market_lookup):
+    other_user = CommandContext(Backend.DISCORD, "9", "123", "Grace")
+    application.cryptos["ALT"] = {"cmc_id": "42"}
+    application.price_notify(discord_context, "TST", 12)
+    application.price_notify(discord_context, "ALT", 9)
+    application.price_notify(other_user, "TST", 8)
+    market_lookup.reset_mock()
+
+    response = application.delete_notification(discord_context, " tst ")
+
+    assert response == "Notification for TST deleted"
+    assert application.check_notifications(discord_context) == "ALT at $9.0\n"
+    assert application.check_notifications(other_user) == "TST at $8.0\n"
+    market_lookup.assert_not_called()
+
+
+def test_delete_notification_explains_missing_alert(application, discord_context, market_lookup):
+    response = application.delete_notification(discord_context, "TST")
+
+    assert response == "You don't have a notification set for TST"
+    market_lookup.assert_not_called()
+
+
+def test_delete_unknown_coin_preserves_saved_alert(application, discord_context, market_lookup):
+    application.price_notify(discord_context, "TST", 12)
+    market_lookup.reset_mock()
+
+    response = application.delete_notification(discord_context, "missing")
+
+    assert response == "You don't have a notification set for MISSING"
+    assert application.check_notifications(discord_context) == "TST at $12.0\n"
+    market_lookup.assert_not_called()
+
+
+def test_delete_notification_works_after_coin_leaves_catalog(application, discord_context, market_lookup):
+    application.price_notify(discord_context, "TST", 12)
+    del application.cryptos["TST"]
+    market_lookup.reset_mock()
+
+    response = application.delete_notification(discord_context, "tst")
+
+    assert response == "Notification for TST deleted"
+    assert application.check_notifications(discord_context) == "No notifications set"
+    market_lookup.assert_not_called()
+
+
 @pytest.fixture
 def legacy_telegram_alerts(tmp_path, application):
     path = tmp_path / "notifications.db"

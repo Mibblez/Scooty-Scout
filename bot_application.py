@@ -108,6 +108,12 @@ class BotApplication:
             return "No notifications set"
         return "".join(f"{coin} at ${target}\n" for coin, target in notifications)
 
+    def delete_notification(self, context: CommandContext, symbol: str) -> str:
+        """Cancel one of the caller's price alerts for any platform."""
+        if self.price_alerts is None:
+            raise PriceAlertError("Price notifications are not configured.")
+        return self.price_alerts.delete_notification(context, symbol)
+
     def prepare_new_coin(self, identifier: str) -> CoinCandidate:
         """Look up one coin in CoinMarketCap and prepare it for confirmation."""
         identifier = identifier.strip()

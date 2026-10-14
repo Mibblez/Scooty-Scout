@@ -156,6 +156,27 @@ class DiscordAdapter(discord.Client):
                 ephemeral=True,
             )
 
+        @self.tree.command(name="delete_notification", description="Delete one of your price notifications")
+        @app_commands.describe(symbol="Coin symbol for the notification to delete")
+        async def delete_notification(interaction: discord.Interaction, symbol: str) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                response = await asyncio.to_thread(
+                    self.bot_application.delete_notification, context_from_interaction(interaction), symbol
+                )
+            except PriceAlertError as error:
+                response = str(error)
+            except Exception:
+                logger.exception("Discord /delete_notification failed")
+                response = "Could not delete that price notification. Try again later."
+            await send_followup_text(
+                interaction,
+                response,
+                filename="notification.txt",
+                attachment_message="Price notification response is attached.",
+                ephemeral=True,
+            )
+
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")
         async def new_crypto(interaction: discord.Interaction, identifier: str) -> None:
@@ -198,6 +219,9 @@ class DiscordAdapter(discord.Client):
         for notification in notifications:
             try:
                 user = self.get_user(notification.user_id) or await self.fetch_user(notification.user_id)
+                # The alert may have been canceled while fetching the recipient.
+                if not await asyncio.to_thread(alerts.is_pending, notification.notification_id):
+                    continue
                 await user.send(notification.message())
                 await asyncio.to_thread(alerts.acknowledge, notification.notification_id)
             except discord.HTTPException:
