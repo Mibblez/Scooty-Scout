@@ -52,6 +52,31 @@ def new_coin():
     return CoinCandidate("NEW", "New Coin", "43", "https://example.com", None, None)
 
 
+def test_check_notifications_replies_privately(adapter, application, interaction, run_async):
+    response = "TST at $12.0\n"
+    application.check_notifications = Mock(return_value=response)
+    command = adapter.tree.get_command("check_notifications")
+
+    run_async(command.callback(interaction))
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    interaction.followup.send.assert_awaited_once_with(response, ephemeral=True)
+
+
+def test_check_notifications_attaches_long_lists_privately(adapter, application, interaction, run_async):
+    long_response = "TST at $12.0\n" * 200
+    application.check_notifications = Mock(return_value=long_response)
+    command = adapter.tree.get_command("check_notifications")
+
+    run_async(command.callback(interaction))
+
+    reply = interaction.followup.send.call_args
+    attachment = reply.kwargs["file"]
+    assert reply.kwargs["ephemeral"] is True
+    assert attachment.filename == "notifications.txt"
+    assert attachment.fp.read().decode("utf-8") == long_response
+
+
 def test_price_notify_registers_user_and_confirms_privately(adapter, application, interaction, run_async):
     command = adapter.tree.get_command("price_notify")
 
@@ -147,7 +172,7 @@ def test_price_defers_lookup_and_formats_quote(
 
     application.price.assert_called_once_with(discord_context, " tst ")
     market_lookup.assert_called_once_with("42", "cmc-key")
-    interaction.followup.send.assert_awaited_once_with(expected)
+    interaction.followup.send.assert_awaited_once_with(expected, ephemeral=False)
 
 
 @pytest.mark.parametrize(

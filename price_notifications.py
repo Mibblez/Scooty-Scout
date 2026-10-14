@@ -108,25 +108,6 @@ def at_everyone_opt_out(cursor, message):
     globals.bot.reply_to(message, "You won't be notified when someone uses the /everyone command")
 
 
-@globals.bot.message_handler(commands=["check_notifications", "cnot"])
-@uses_notification_db
-def check_notifications(cursor, message):
-    cursor.execute(f"SELECT coin, notify_at FROM price_notifications WHERE user_id={message.from_user.id}")
-    result = cursor.fetchall()
-
-    if result == []:
-        # No notifications are set
-        globals.bot.reply_to(message, "No notifications set")
-        return
-
-    response = ""
-
-    for coin, notify_at in result:
-        response += f"{coin} at ${notify_at}\n"
-
-    globals.bot.reply_to(message, response)
-
-
 @globals.bot.message_handler(commands=["delete_notification", "dnot"])
 @uses_notification_db
 def delete_notification(cursor, message):

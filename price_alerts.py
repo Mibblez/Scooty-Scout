@@ -51,6 +51,14 @@ class PriceAlerts:
         with closing(sqlite3.connect(self.db_path)) as connection:
             return connection.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone() is not None
 
+    def list_notifications(self, context: CommandContext) -> list[tuple[str, float]]:
+        """Return only the caller's saved alerts, without fetching market data."""
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            return connection.execute(
+                "SELECT coin, notify_at FROM price_notifications WHERE user_id = ? ORDER BY coin",
+                (context.user_id,),
+            ).fetchall()
+
     @staticmethod
     def _price(data: Any, coin_id: str) -> float:
         price = float(data["data"][coin_id]["quote"]["USD"]["price"])

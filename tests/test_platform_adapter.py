@@ -34,6 +34,7 @@ def telegram_application():
         coins=Mock(return_value="Known coins:\nBTC"),
         price=Mock(return_value="Price response"),
         price_notify=Mock(return_value="Notification response"),
+        check_notifications=Mock(return_value="TST at $12.0\n"),
         price_alerts=SimpleNamespace(has_user=Mock(return_value=True)),
     )
 
@@ -66,6 +67,16 @@ def test_telegram_coins_translates_context_and_replies(telegram_bot, telegram_ap
 
     telegram_application.coins.assert_called_once_with(TELEGRAM_CONTEXT)
     telegram_bot.reply_to.assert_called_once_with(message, "Known coins:\nBTC")
+
+
+@pytest.mark.parametrize("command", ["check_notifications", "cnot"], ids=["full-command", "alias"])
+def test_telegram_check_notifications_uses_shared_logic(telegram_bot, telegram_application, message, command):
+    message.text = f"/{command}"
+
+    telegram_bot.handlers[command](message)
+
+    telegram_application.check_notifications.assert_called_once_with(TELEGRAM_CONTEXT)
+    telegram_bot.reply_to.assert_called_once_with(message, "TST at $12.0\n")
 
 
 @pytest.mark.parametrize(

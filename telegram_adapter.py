@@ -51,3 +51,11 @@ class TelegramAdapter:
             except PriceAlertError as error:
                 response = str(error)
             self.bot.reply_to(message, response)
+
+        @self.bot.message_handler(commands=["check_notifications", "cnot"])
+        def check_notifications(message):
+            try:
+                response = self.application.check_notifications(context_from_message(message))
+            except PriceAlertError as error:
+                response = str(error)
+            self.bot.reply_to(message, response)

@@ -27,6 +27,22 @@ def context_from_interaction(interaction: discord.Interaction) -> CommandContext
     )
 
 
+async def send_followup_text(
+    interaction: discord.Interaction,
+    text: str,
+    *,
+    filename: str,
+    attachment_message: str,
+    ephemeral: bool = False,
+) -> None:
+    """Send a deferred reply as text or a UTF-8 attachment when it is too long."""
+    if len(text) <= 2000:
+        await interaction.followup.send(text, ephemeral=ephemeral)
+    else:
+        attachment = discord.File(io.BytesIO(text.encode("utf-8")), filename=filename)
+        await interaction.followup.send(attachment_message, file=attachment, ephemeral=ephemeral)
+
+
 class ConfirmNewCoin(discord.ui.View):
     def __init__(self, application: BotApplication, candidate: CoinCandidate, owner_id: int) -> None:
         super().__init__(timeout=120)
@@ -91,11 +107,9 @@ class DiscordAdapter(discord.Client):
                 logger.exception("Discord /price lookup failed")
                 await interaction.followup.send("Could not get the latest price. Try again later.")
                 return
-            if len(response) <= 2000:
-                await interaction.followup.send(response)
-            else:
-                attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="price.txt")
-                await interaction.followup.send("Price command response is attached.", file=attachment)
+            await send_followup_text(
+                interaction, response, filename="price.txt", attachment_message="Price command response is attached."
+            )
 
         @self.tree.command(name="price_notify", description="DM you when a coin crosses your target USD price")
         @app_commands.describe(symbol="Known coin symbol (see /coins)", target="Target price in USD")
@@ -114,13 +128,33 @@ class DiscordAdapter(discord.Client):
                 response += (
                     "\nAlerts arrive by DM. Allow DMs from this server's members. Prices are checked every 15 minutes."
                 )
-            if len(response) <= 2000:
-                await interaction.followup.send(response, ephemeral=True)
-            else:
-                attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="notification.txt")
-                await interaction.followup.send(
-                    "Price notification response is attached.", file=attachment, ephemeral=True
+            await send_followup_text(
+                interaction,
+                response,
+                filename="notification.txt",
+                attachment_message="Price notification response is attached.",
+                ephemeral=True,
+            )
+
+        @self.tree.command(name="check_notifications", description="List your active price notifications")
+        async def check_notifications(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                response = await asyncio.to_thread(
+                    self.bot_application.check_notifications, context_from_interaction(interaction)
                 )
+            except PriceAlertError as error:
+                response = str(error)
+            except Exception:
+                logger.exception("Discord /check_notifications failed")
+                response = "Could not check price notifications. Try again later."
+            await send_followup_text(
+                interaction,
+                response,
+                filename="notifications.txt",
+                attachment_message="Price notifications are attached.",
+                ephemeral=True,
+            )
 
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")

@@ -10,6 +10,26 @@ from command_context import CommandContext
 from price_alerts import PriceAlerts, PriceAlertError
 
 
+def test_check_notifications_is_empty_without_market_lookup(application, discord_context, market_lookup):
+    response = application.check_notifications(discord_context)
+
+    assert response == "No notifications set"
+    market_lookup.assert_not_called()
+
+
+def test_check_notifications_lists_only_callers_alerts(application, discord_context, market_lookup):
+    other_user = CommandContext(Backend.DISCORD, "9", "123", "Grace")
+    application.price_notify(discord_context, "TST", 12)
+    application.price_notify(other_user, "TST", 8)
+    market_lookup.reset_mock()
+
+    response = application.check_notifications(discord_context)
+
+    assert response == "TST at $12.0\n"
+    assert application.check_notifications(other_user) == "TST at $8.0\n"
+    market_lookup.assert_not_called()
+
+
 @pytest.fixture
 def legacy_telegram_alerts(tmp_path, application):
     path = tmp_path / "notifications.db"

@@ -99,6 +99,15 @@ class BotApplication:
             raise PriceAlertError("Price notifications are not configured.")
         return self.price_alerts.set_notification(context, symbol, target)
 
+    def check_notifications(self, context: CommandContext) -> str:
+        """List the caller's price alerts for any platform."""
+        if self.price_alerts is None:
+            raise PriceAlertError("Price notifications are not configured.")
+        notifications = self.price_alerts.list_notifications(context)
+        if not notifications:
+            return "No notifications set"
+        return "".join(f"{coin} at ${target}\n" for coin, target in notifications)
+
     def prepare_new_coin(self, identifier: str) -> CoinCandidate:
         """Look up one coin in CoinMarketCap and prepare it for confirmation."""
         identifier = identifier.strip()
