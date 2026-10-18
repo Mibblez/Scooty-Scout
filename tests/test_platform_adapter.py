@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from backend_config import Backend
-from bot_application import BotApplication
+from bot_application import BotApplication, CoinInfo
 from command_context import CommandContext
 from telegram_adapter import TelegramAdapter
 
@@ -32,6 +32,7 @@ class FakeTelegramBot:
 def telegram_application():
     return SimpleNamespace(
         coins=Mock(return_value="Known coins:\nBTC"),
+        info=Mock(return_value=CoinInfo("TST", "Test Coin", [("Website", "https://example.com")], [])),
         price=Mock(return_value="Price response"),
         price_notify=Mock(return_value="Notification response"),
         check_notifications=Mock(return_value="TST at $12.0\n"),
@@ -68,6 +69,22 @@ def test_telegram_coins_translates_context_and_replies(telegram_bot, telegram_ap
 
     telegram_application.coins.assert_called_once_with(TELEGRAM_CONTEXT)
     telegram_bot.reply_to.assert_called_once_with(message, "Known coins:\nBTC")
+
+
+@pytest.mark.parametrize(
+    ("command_text", "expected_symbol"),
+    [("/info tst", "tst"), ("/info", ""), ("/info BTC ETH", "")],
+    ids=["valid-symbol", "missing-symbol", "too-many-arguments"],
+)
+def test_telegram_info_translates_arguments(telegram_bot, telegram_application, message, command_text, expected_symbol):
+    message.text = command_text
+
+    telegram_bot.handlers["info"](message)
+
+    telegram_application.info.assert_called_once_with(TELEGRAM_CONTEXT, expected_symbol)
+    telegram_bot.send_message.assert_called_once_with(
+        message.chat.id, "Test Coin (TST)\n\nWebsite: https://example.com"
+    )
 
 
 @pytest.mark.parametrize("command", ["check_notifications", "cnot"], ids=["full-command", "alias"])

@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import tasks
 
 from backend_config import Backend
-from bot_application import BotApplication, CoinCandidate, CoinCreationError
+from bot_application import BotApplication, CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError
 from bot_utilities import log_to_disk
 from command_context import CommandContext
 from price_alerts import PriceAlertError
@@ -41,6 +41,26 @@ async def send_followup_text(
     else:
         attachment = discord.File(io.BytesIO(text.encode("utf-8")), filename=filename)
         await interaction.followup.send(attachment_message, file=attachment, ephemeral=ephemeral)
+
+
+def coin_info_embed(info: CoinInfo) -> discord.Embed | None:
+    """Build a coin card, falling back to text if it exceeds Discord's embed limits."""
+    embed = discord.Embed(title=info.title, color=discord.Color.blurple())
+    for label, value in info.fields:
+        if label == "Contract address":
+            value = f"`{value}`"
+        elif label == "Website" and value.startswith(("https://", "http://")):
+            value = f"[Visit website]({value})"
+        embed.add_field(name=label, value=value, inline=label in ("Network", "Website"))
+    if info.links:
+        embed.add_field(name="Links", value=" • ".join(f"[{label}]({url})" for label, url in info.links), inline=False)
+    if not embed.fields:
+        embed.description = "No additional information available."
+    if len(info.title) > 256 or len(embed.fields) > 25 or len(embed) > 6000:
+        return None
+    if any(len(field.name) > 256 or len(field.value) > 1024 for field in embed.fields):
+        return None
+    return embed
 
 
 class ConfirmNewCoin(discord.ui.View):
@@ -94,6 +114,24 @@ class DiscordAdapter(discord.Client):
             else:
                 attachment = discord.File(io.BytesIO(response.encode("utf-8")), filename="coins.txt")
                 await interaction.response.send_message("Known coins are attached.", file=attachment)
+
+        @self.tree.command(name="info", description="Show a coin's website, network, and contract details")
+        @app_commands.describe(symbol="Known coin symbol, such as SAND (see /coins)")
+        async def info(interaction: discord.Interaction, symbol: str) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                coin_info = self.bot_application.info(context_from_interaction(interaction), symbol)
+            except CoinInfoError as error:
+                response = str(error)
+            else:
+                embed = coin_info_embed(coin_info)
+                if embed is not None:
+                    await interaction.followup.send(embed=embed)
+                    return
+                response = coin_info.as_text()
+            await send_followup_text(
+                interaction, response, filename="info.txt", attachment_message="Coin information is attached."
+            )
 
         @self.tree.command(name="price", description="Get a coin's USD price and 24-hour change")
         @app_commands.describe(symbol="Known coin symbol, such as BTC (see /coins)")

@@ -9,7 +9,7 @@ import discord
 import pytest
 
 import bot_application
-from bot_application import CoinCandidate, CoinCreationError
+from bot_application import CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError
 from discord_adapter import DiscordAdapter
 from discord_bot import _admin_ids
 
@@ -50,6 +50,52 @@ def triggered_alert(application, discord_context, market_lookup, market_quote):
 @pytest.fixture
 def new_coin():
     return CoinCandidate("NEW", "New Coin", "43", "https://example.com", None, None)
+
+
+def test_info_shows_readable_coin_card(adapter, application, interaction, run_async):
+    application.info = Mock(
+        return_value=CoinInfo(
+            "TST",
+            "Test Coin",
+            [("Network", "ETH ERC-20"), ("Website", "https://example.com"), ("Contract address", "0xabc")],
+            [("CoinMarketCap", "https://coinmarketcap.com/currencies/test-coin/")],
+        )
+    )
+    command = adapter.tree.get_command("info")
+
+    run_async(command.callback(interaction, "tst"))
+
+    interaction.response.defer.assert_awaited_once_with(thinking=True)
+    embed = interaction.followup.send.call_args.kwargs["embed"]
+    assert embed.title == "Test Coin (TST)"
+    assert [(field.name, field.value) for field in embed.fields] == [
+        ("Network", "ETH ERC-20"),
+        ("Website", "[Visit website](https://example.com)"),
+        ("Contract address", "`0xabc`"),
+        ("Links", "[CoinMarketCap](https://coinmarketcap.com/currencies/test-coin/)"),
+    ]
+    assert embed.fields[2].inline is False
+
+
+def test_info_attaches_metadata_that_exceeds_embed_limits(adapter, application, interaction, run_async):
+    info = CoinInfo("TST", "Test Coin", [("Description", "x" * 2100)], [])
+    application.info = Mock(return_value=info)
+    command = adapter.tree.get_command("info")
+
+    run_async(command.callback(interaction, "TST"))
+
+    attachment = interaction.followup.send.call_args.kwargs["file"]
+    assert attachment.filename == "info.txt"
+    assert attachment.fp.read().decode("utf-8") == info.as_text()
+
+
+def test_info_explains_unknown_coin(adapter, application, interaction, run_async):
+    application.info = Mock(side_effect=CoinInfoError("Unknown coin: MISSING"))
+    command = adapter.tree.get_command("info")
+
+    run_async(command.callback(interaction, "missing"))
+
+    interaction.followup.send.assert_awaited_once_with("Unknown coin: MISSING", ephemeral=False)
 
 
 def test_check_notifications_replies_privately(adapter, application, interaction, run_async):
@@ -238,6 +284,7 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
                     "43": {
                         "symbol": new_coin.symbol,
                         "name": new_coin.name,
+                        "slug": "new-coin",
                         "urls": {"website": [new_coin.website]},
                         "platform": None,
                     }
@@ -252,6 +299,7 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
     assert application.coins(discord_context) == "Known coins:\nNEW"
     saved_coins = json.loads(application.crypto_path.read_text(encoding="utf-8"))
     assert saved_coins["NEW"]["cmc_id"] == "43"
+    assert saved_coins["NEW"]["cmc_slug"] == "new-coin"
     with pytest.raises(CoinCreationError, match="already known"):
         application.add_coin(candidate)
 

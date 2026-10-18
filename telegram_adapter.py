@@ -1,7 +1,7 @@
 """Register Telegram commands and translate their inputs and responses."""
 
 from backend_config import Backend
-from bot_application import BotApplication
+from bot_application import BotApplication, CoinInfoError
 from command_context import CommandContext
 from bot_utilities import usage_error
 from price_alerts import PriceAlertError
@@ -27,6 +27,16 @@ class TelegramAdapter:
         def coins(message):
             context = context_from_message(message)
             self.bot.reply_to(message, self.application.coins(context))
+
+        @self.bot.message_handler(commands=["info"])
+        def info(message):
+            arguments = message.text.split()
+            symbol = arguments[1] if len(arguments) == 2 else ""
+            try:
+                response = self.application.info(context_from_message(message), symbol).as_text()
+            except CoinInfoError as error:
+                response = str(error)
+            self.bot.send_message(message.chat.id, response)
 
         @self.bot.message_handler(commands=["price"])
         def price(message):

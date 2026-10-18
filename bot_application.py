@@ -21,6 +21,35 @@ class CoinCreationError(ValueError):
     """A requested coin cannot be added to the catalog."""
 
 
+class CoinInfoError(ValueError):
+    """Information cannot be shown for the requested coin."""
+
+
+@dataclass(frozen=True)
+class CoinInfo:
+    symbol: str
+    name: str
+    fields: list[tuple[str, str]]
+    links: list[tuple[str, str]]
+
+    @property
+    def title(self) -> str:
+        return f"{self.name} ({self.symbol})" if self.name != self.symbol else self.symbol
+
+    def as_text(self) -> str:
+        """Render a readable text version for platforms without embeds."""
+        lines = [self.title]
+        if self.fields:
+            lines.append("")
+            lines.extend(f"{label}: {value}" for label, value in self.fields)
+        if self.links:
+            lines.append("")
+            lines.extend(f"{label}: {url}" for label, url in self.links)
+        if not self.fields and not self.links:
+            lines.extend(["", "No additional information available."])
+        return "\n".join(lines)
+
+
 @dataclass(frozen=True)
 class CoinCandidate:
     symbol: str
@@ -29,6 +58,7 @@ class CoinCandidate:
     website: str
     contract_id: str | None
     chain: str | None
+    slug: str | None = None
 
     def preview(self) -> str:
         return (
@@ -38,7 +68,7 @@ class CoinCandidate:
         )
 
     def record(self) -> dict[str, Any]:
-        return {
+        record = {
             "INFO": {
                 "contract_id": self.contract_id,
                 "chain": self.chain,
@@ -47,6 +77,9 @@ class CoinCandidate:
             "cmc_id": self.cmc_id,
             "cmc_name": self.name,
         }
+        if self.slug:
+            record["cmc_slug"] = self.slug
+        return record
 
 
 class BotApplication:
@@ -66,6 +99,36 @@ class BotApplication:
     def coins(self, _context: CommandContext) -> str:
         """List known coins without depending on a platform's message API."""
         return "Known coins:\n" + " ; ".join(self.cryptos)
+
+    def info(self, _context: CommandContext, symbol: str) -> CoinInfo:
+        """Read saved coin metadata without depending on a platform's presentation."""
+        symbol = symbol.strip().upper()
+        if not symbol:
+            raise CoinInfoError(usage_error("/info COIN_SYMBOL"))
+        if symbol not in self.cryptos:
+            raise CoinInfoError(unknown_coin(symbol, self.cryptos))
+
+        coin = self.cryptos[symbol]
+        metadata = coin.get("INFO") or {}
+        labels = {"chain": "Network", "website": "Website", "contract_id": "Contract address"}
+        ordered_keys = list(labels) + [key for key in metadata if key not in labels]
+        fields = []
+        for key in ordered_keys:
+            value = metadata.get(key)
+            if value is not None and value != "":
+                fields.append((labels.get(key, key.replace("_", " ").title()), str(value)))
+
+        links = []
+        chain = metadata.get("chain")
+        contract_id = metadata.get("contract_id")
+        if chain in ("BSC", "BNB BEP20") and contract_id:
+            links.append(("BscScan", f"https://www.bscscan.com/address/{contract_id}"))
+            links.append(("DEXTools", f"https://www.dextools.io/app/bsc/pair-explorer/{contract_id}"))
+        elif chain:
+            slug = coin.get("cmc_slug") or (coin.get("cmc_name") or "").lower().replace(" ", "-")
+            if slug:
+                links.append(("CoinMarketCap", f"https://coinmarketcap.com/currencies/{slug}/"))
+        return CoinInfo(symbol, coin.get("cmc_name") or symbol, fields, links)
 
     def price(self, _context: CommandContext, symbol: str) -> str:
         """Get a known coin's USD price and 24-hour movement for any platform."""
@@ -167,6 +230,7 @@ class BotApplication:
             website=websites[0] if websites else "",
             contract_id=contract_id,
             chain=chain,
+            slug=coin.get("slug"),
         )
 
     def add_coin(self, candidate: CoinCandidate) -> None:

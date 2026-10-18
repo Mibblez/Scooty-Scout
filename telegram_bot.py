@@ -85,41 +85,6 @@ application = BotApplication(cryptos_json, CMC_API_KEY, notification_path="notif
 TelegramAdapter(bot, application).register()
 
 
-# TODO: add has_dextools in each json entry. show dextools url if has_dextools is set to true
-@bot.message_handler(commands=["info"])
-def info(message):
-    request = message.text.split()[1] if len(message.text.split()) == 2 else ""
-
-    # Too many or too few args
-    if request == "":
-        bot.send_message(message.chat.id, usage_error("/info COIN_NAME"))
-        return
-
-    # Given a coin name thats not in the JSON file
-    if request not in cryptos_json:
-        bot.send_message(message.chat.id, unknown_coin(request, cryptos_json))
-        return
-
-    response = ""
-
-    requested_crypto_info = cryptos_json[request]["INFO"]
-
-    for k, v in requested_crypto_info.items():
-        response += f"{k} : {v}\n"
-
-    if "chain" in requested_crypto_info:
-        if requested_crypto_info["chain"] == "BSC":
-            response += f"BSC Scan: https://www.bscscan.com/address/{requested_crypto_info['contract_id']}\n"
-            response += (
-                f"Dextools: https://www.dextools.io/app/{requested_crypto_info['chain'].lower()}"
-                + f"/pair-explorer/{requested_crypto_info['contract_id']}"
-            )
-        else:
-            response += f"CMC: https://coinmarketcap.com/currencies/{cryptos_json[request]['cmc_name']}/"
-
-    bot.send_message(message.chat.id, response)
-
-
 @bot.message_handler(commands=["dextools"])
 def dextools(message):
     request = message.text.split()[1] if len(message.text.split()) == 2 else ""
