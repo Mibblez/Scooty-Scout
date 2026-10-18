@@ -10,7 +10,15 @@ from discord import app_commands
 from discord.ext import tasks
 
 from backend_config import Backend
-from bot_application import BotApplication, CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError
+from bot_application import (
+    BotApplication,
+    CoinCandidate,
+    CoinCreationError,
+    CoinInfo,
+    CoinInfoError,
+    CoinUpdate,
+    CoinUpdateError,
+)
 from bot_utilities import log_to_disk
 from command_context import CommandContext
 from price_alerts import PriceAlertError
@@ -94,6 +102,48 @@ class ConfirmNewCoin(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await interaction.response.edit_message(content="Aborting command.", view=None)
         self.stop()
+
+
+class ConfirmCoinUpdate(discord.ui.View):
+    def __init__(self, application: BotApplication, change: CoinUpdate, owner_id: int) -> None:
+        super().__init__(timeout=120)
+        self.bot_application = application
+        self.change = change
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the command creator can confirm this change.", ephemeral=True)
+            return False
+        if self.is_finished():
+            await interaction.response.send_message("This update is no longer active.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Save changes", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        self.stop()
+        await interaction.response.defer()
+        try:
+            await asyncio.to_thread(self.bot_application.update_coin, self.change)
+        except CoinUpdateError as error:
+            response = str(error)
+        except OSError:
+            logger.exception("Discord /update_crypto save failed")
+            response = "Could not save the coin information. Try again later."
+        else:
+            response = f"Success. {self.change.symbol}'s {self.change.field} has been updated."
+            log_to_disk(
+                f"Updated {self.change.symbol}: {self.change.field}",
+                "/update_crypto",
+                context_from_interaction(interaction),
+            )
+        await interaction.edit_original_response(content=response, attachments=[], view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        self.stop()
+        await interaction.response.edit_message(content="Aborting command.", attachments=[], view=None)
 
 
 class DiscordAdapter(discord.Client):
@@ -233,6 +283,35 @@ class DiscordAdapter(discord.Client):
                 return
             view = ConfirmNewCoin(self.bot_application, candidate, interaction.user.id)
             await interaction.followup.send(f"{candidate.preview()}\n\nAdd this coin?", view=view, ephemeral=True)
+
+        @self.tree.command(name="update_crypto", description="Update or add a saved metadata field for a coin")
+        @app_commands.describe(
+            symbol="Known coin symbol (see /coins)",
+            field="Metadata key: website, chain, contract_id, or a custom field name",
+            value="New value for this metadata field",
+        )
+        async def update_crypto(interaction: discord.Interaction, symbol: str, field: str, value: str) -> None:
+            if interaction.user.id not in self.admin_ids:
+                await interaction.response.send_message("Only admins can update coins.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                change = self.bot_application.prepare_coin_update(symbol, field, value)
+            except CoinUpdateError as error:
+                await interaction.followup.send(str(error), ephemeral=True)
+                return
+            view = ConfirmCoinUpdate(self.bot_application, change, interaction.user.id)
+            preview = f"{change.preview()}\n\nSave this change?"
+            if len(preview) <= 2000:
+                await interaction.followup.send(preview, view=view, ephemeral=True)
+            else:
+                attachment = discord.File(io.BytesIO(preview.encode("utf-8")), filename="update_crypto.txt")
+                await interaction.followup.send(
+                    "Review the attached change, then choose Save changes or Cancel.",
+                    file=attachment,
+                    view=view,
+                    ephemeral=True,
+                )
 
     async def setup_hook(self) -> None:
         if self.guild_id is None:

@@ -25,6 +25,22 @@ class CoinInfoError(ValueError):
     """Information cannot be shown for the requested coin."""
 
 
+class CoinUpdateError(ValueError):
+    """A requested change to coin metadata cannot be saved."""
+
+
+@dataclass(frozen=True)
+class CoinUpdate:
+    symbol: str
+    field: str
+    value: str
+    previous_value: Any
+
+    def preview(self) -> str:
+        previous = self.previous_value if self.previous_value not in (None, "") else "(not set)"
+        return f"Update {self.symbol}: {self.field}\n\nCurrent: {previous}\nNew: {self.value}"
+
+
 @dataclass(frozen=True)
 class CoinInfo:
     symbol: str
@@ -239,15 +255,46 @@ class BotApplication:
             if candidate.symbol in self.cryptos:
                 raise CoinCreationError(f"{candidate.symbol} is already known by the bot.")
             updated = {**self.cryptos, candidate.symbol: candidate.record()}
-            file_descriptor, temporary_path = tempfile.mkstemp(
-                prefix=".cryptos-", suffix=".json", dir=self.crypto_path.parent
-            )
-            try:
-                with os.fdopen(file_descriptor, "w", encoding="utf-8") as output:
-                    json.dump(updated, output, indent=4)
-                os.replace(temporary_path, self.crypto_path)
-            finally:
-                if os.path.exists(temporary_path):
-                    os.unlink(temporary_path)
-            self.cryptos.clear()
-            self.cryptos.update(updated)
+            self._save_catalog(updated)
+
+    def prepare_coin_update(self, symbol: str, field: str, value: str) -> CoinUpdate:
+        """Validate a metadata change without changing the saved or live catalog."""
+        symbol = symbol.strip().upper()
+        field = field.strip()
+        value = value.strip()
+        if not symbol:
+            raise CoinUpdateError(usage_error("/update_crypto COIN_SYMBOL"))
+        if symbol not in self.cryptos:
+            raise CoinUpdateError(f"Cannot update coin: unknown coin {symbol}")
+        if not field:
+            raise CoinUpdateError("Provide a metadata field, such as website, chain, or contract_id.")
+        if not value:
+            raise CoinUpdateError("Provide a non-empty value for the metadata field.")
+        metadata = self.cryptos[symbol].get("INFO") or {}
+        return CoinUpdate(symbol, field, value, metadata.get(field))
+
+    def update_coin(self, change: CoinUpdate) -> None:
+        """Save a confirmed field change, preserving other metadata and coin identifiers."""
+        with self._catalog_lock:
+            current = self.prepare_coin_update(change.symbol, change.field, change.value)
+            if current.previous_value != change.previous_value:
+                raise CoinUpdateError("This field changed after your preview. Run /update_crypto again to review it.")
+            coin = self.cryptos[current.symbol]
+            metadata = {**(coin.get("INFO") or {}), current.field: current.value}
+            updated_coin = {**coin, "INFO": metadata}
+            self._save_catalog({**self.cryptos, current.symbol: updated_coin})
+
+    def _save_catalog(self, updated: dict[str, Any]) -> None:
+        """Replace the file before updating live data; the caller holds the catalog lock."""
+        file_descriptor, temporary_path = tempfile.mkstemp(
+            prefix=".cryptos-", suffix=".json", dir=self.crypto_path.parent
+        )
+        try:
+            with os.fdopen(file_descriptor, "w", encoding="utf-8") as output:
+                json.dump(updated, output, indent=4)
+            os.replace(temporary_path, self.crypto_path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+        self.cryptos.clear()
+        self.cryptos.update(updated)

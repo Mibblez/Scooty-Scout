@@ -9,7 +9,7 @@ import discord
 import pytest
 
 import bot_application
-from bot_application import CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError
+from bot_application import CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError, CoinUpdateError
 from discord_adapter import DiscordAdapter
 from discord_bot import _admin_ids
 
@@ -21,6 +21,7 @@ def interaction(discord_context):
         channel_id=123,
         response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock(), edit_message=AsyncMock()),
         followup=SimpleNamespace(send=AsyncMock()),
+        edit_original_response=AsyncMock(),
     )
 
 
@@ -50,6 +51,14 @@ def triggered_alert(application, discord_context, market_lookup, market_quote):
 @pytest.fixture
 def new_coin():
     return CoinCandidate("NEW", "New Coin", "43", "https://example.com", None, None)
+
+
+@pytest.fixture
+def pending_update(adapter, interaction, run_async):
+    interaction.user.id = 7
+    command = adapter.tree.get_command("update_crypto")
+    run_async(command.callback(interaction, "tst", "website", "https://new.example.com"))
+    return interaction.followup.send.call_args.kwargs["view"]
 
 
 def test_info_shows_readable_coin_card(adapter, application, interaction, run_async):
@@ -304,15 +313,21 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
         application.add_coin(candidate)
 
 
-def test_new_crypto_requires_admin(adapter, application, interaction, run_async):
-    command = adapter.tree.get_command("new_crypto")
+@pytest.mark.parametrize(
+    ("command_name", "arguments"),
+    [("new_crypto", ("NEW",)), ("update_crypto", ("TST", "website", "https://example.com"))],
+    ids=["add-coin", "update-coin"],
+)
+def test_coin_management_requires_admin(adapter, application, interaction, run_async, command_name, arguments):
+    command = adapter.tree.get_command(command_name)
 
-    run_async(command.callback(interaction, "NEW"))
+    run_async(command.callback(interaction, *arguments))
 
     reply = interaction.response.send_message.call_args
     assert "Only admins" in reply.args[0]
     assert reply.kwargs["ephemeral"] is True
     assert "NEW" not in application.cryptos
+    assert not application.crypto_path.exists()
 
 
 def test_new_crypto_confirmation_saves_coin(adapter, application, interaction, new_coin, run_async):
@@ -328,6 +343,92 @@ def test_new_crypto_confirmation_saves_coin(adapter, application, interaction, n
     assert "has been added" in reply.kwargs["content"]
     saved_coins = json.loads(application.crypto_path.read_text(encoding="utf-8"))
     assert "NEW" in saved_coins
+
+
+def test_update_crypto_previews_change_privately(application, interaction, pending_update):
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    reply = interaction.followup.send.call_args
+    assert reply.args[0] == (
+        "Update TST: website\n\nCurrent: (not set)\nNew: https://new.example.com\n\nSave this change?"
+    )
+    assert reply.kwargs["ephemeral"] is True
+    assert [button.label for button in pending_update.children] == ["Save changes", "Cancel"]
+    assert application.cryptos == {"TST": {"cmc_id": "42"}}
+    assert not application.crypto_path.exists()
+
+
+def test_update_crypto_confirmation_saves_coin(application, interaction, pending_update, run_async):
+    run_async(pending_update.children[0].callback(interaction))
+
+    saved = json.loads(application.crypto_path.read_text(encoding="utf-8"))
+    assert saved["TST"]["INFO"]["website"] == "https://new.example.com"
+    interaction.edit_original_response.assert_awaited_once_with(
+        content="Success. TST's website has been updated.", attachments=[], view=None
+    )
+    assert pending_update.is_finished()
+
+
+def test_update_crypto_cancel_keeps_catalog_unchanged(application, interaction, pending_update, run_async):
+    run_async(pending_update.children[1].callback(interaction))
+
+    assert application.cryptos == {"TST": {"cmc_id": "42"}}
+    assert not application.crypto_path.exists()
+    interaction.response.edit_message.assert_awaited_once_with(content="Aborting command.", attachments=[], view=None)
+    assert pending_update.is_finished()
+
+
+def test_update_crypto_buttons_reject_other_users(interaction, pending_update, run_async):
+    interaction.user.id = 8
+
+    allowed = run_async(pending_update.interaction_check(interaction))
+
+    assert allowed is False
+    interaction.response.send_message.assert_awaited_once_with(
+        "Only the command creator can confirm this change.", ephemeral=True
+    )
+
+
+def test_update_crypto_explains_unknown_coin(adapter, interaction, run_async):
+    interaction.user.id = 7
+    command = adapter.tree.get_command("update_crypto")
+
+    run_async(command.callback(interaction, "missing", "website", "https://example.com"))
+
+    interaction.followup.send.assert_awaited_once_with("Cannot update coin: unknown coin MISSING", ephemeral=True)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (CoinUpdateError("This field changed after your preview."), "This field changed after your preview."),
+        (OSError("Disk unavailable"), "Could not save the coin information. Try again later."),
+    ],
+    ids=["stale-preview", "save-failure"],
+)
+def test_update_crypto_explains_save_failure(application, interaction, pending_update, run_async, error, expected):
+    application.update_coin = Mock(side_effect=error)
+
+    run_async(pending_update.children[0].callback(interaction))
+
+    interaction.edit_original_response.assert_awaited_once_with(content=expected, attachments=[], view=None)
+    assert not application.crypto_path.exists()
+
+
+def test_update_crypto_attaches_long_previews(adapter, application, interaction, run_async):
+    interaction.user.id = 7
+    old_value = "x" * 2100
+    application.cryptos["TST"]["INFO"] = {"custom_note": old_value}
+    command = adapter.tree.get_command("update_crypto")
+
+    run_async(command.callback(interaction, "TST", "custom_note", "Shorter note"))
+
+    reply = interaction.followup.send.call_args
+    attachment = reply.kwargs["file"]
+    assert attachment.filename == "update_crypto.txt"
+    assert old_value in attachment.fp.read().decode("utf-8")
+    assert reply.kwargs["ephemeral"] is True
+    assert reply.kwargs["view"] is not None
+    assert application.cryptos["TST"]["INFO"]["custom_note"] == old_value
 
 
 def test_discord_admin_ids_must_be_configured():

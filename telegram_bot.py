@@ -22,7 +22,7 @@ from threading import Thread
 import yt_dlp
 
 from backend_config import Backend, get_backend
-from bot_application import BotApplication, CoinCreationError
+from bot_application import BotApplication, CoinCreationError, CoinUpdateError
 import globals
 from logging_setup import configure_logging
 from bot_utilities import usage_error, unknown_coin, log_to_disk
@@ -476,13 +476,15 @@ def update_crypto(message):
 
         if coin_symbol not in cryptos_json:
             bot.reply_to(message, f"Cannot update coin: unknown coin {coin_symbol}")
+            del user_states[user_id]
             return
 
-        user_states[user_id].new_crypto_tmp = [coin_symbol, cryptos_json[coin_symbol]]
+        metadata = cryptos_json[coin_symbol].get("INFO") or {}
+        user_states[user_id].new_crypto_tmp = [coin_symbol, metadata]
 
         reply = f"--- {coin_symbol} Info ---\n"
         index = 0
-        for k, v in cryptos_json[coin_symbol]["INFO"].items():
+        for k, v in metadata.items():
             reply += f"[{index}] - {k}: {v}\n"
             index += 1
 
@@ -496,7 +498,7 @@ def update_crypto(message):
     elif command_state == 1:
         answer = message.text if len(message.text.split()) == 1 else ""
 
-        current_entries_len = len(user_states[user_id].new_crypto_tmp[1]["INFO"])
+        current_entries_len = len(user_states[user_id].new_crypto_tmp[1])
 
         if (not answer.isdigit()) or (int(answer) < 0) or (int(answer) > current_entries_len):
             del user_states[user_id]
@@ -511,7 +513,7 @@ def update_crypto(message):
             user_states[user_id].state = 2
         else:
             # User is updating an existing entry
-            value_to_change = list(user_states[user_id].new_crypto_tmp[1]["INFO"].keys())[answer]
+            value_to_change = list(user_states[user_id].new_crypto_tmp[1])[answer]
             bot.send_message(message.chat.id, f"Enter a new value for {value_to_change} or enter ABORT to cancel.")
             user_states[user_id].additional_command_info = value_to_change
             user_states[user_id].state = 3
@@ -534,33 +536,29 @@ def update_crypto(message):
             bot.reply_to(message, "Aborting command.")
             return
 
-        user_states[user_id].new_crypto_tmp[1]["INFO"][user_states[user_id].additional_command_info] = answer
-
         coin_symbol = user_states[user_id].new_crypto_tmp[0]
-        index = 0
-        reply = f"--- {coin_symbol} Updated Info ---\n"
-        for k, v in cryptos_json[coin_symbol]["INFO"].items():
-            reply += f"[{index}] - {k}: {v}\n"
-            index += 1
-        reply += "\n Is this information correct? (y/n)"
-
-        bot.send_message(message.chat.id, reply)
-
+        field = user_states[user_id].additional_command_info
+        try:
+            change = application.prepare_coin_update(coin_symbol, field, answer)
+        except CoinUpdateError as error:
+            bot.reply_to(message, str(error))
+            del user_states[user_id]
+            return
+        user_states[user_id].new_crypto_tmp = change
+        bot.send_message(message.chat.id, f"{change.preview()}\n\nIs this information correct? (y/n)")
         user_states[user_id].state = 4
     elif command_state == 4:
         answer = (message.text if len(message.text.split()) == 1 else "").upper()
 
         if answer == "Y":
-            cryptos_json[user_states[user_id].new_crypto_tmp[0]] = user_states[user_id].new_crypto_tmp[1]
-
-            # Dump cryptos_json to disk
-            with open("cryptos.json", "w") as f:
-                json.dump(cryptos_json, f, indent=4)
-
-            bot.reply_to(message, "Coin successfully updated")
-            log_to_disk(
-                f"Updated {user_states[user_id].new_crypto_tmp[0]}", "/update_crypto", context_from_message(message)
-            )
+            change = user_states[user_id].new_crypto_tmp
+            try:
+                application.update_coin(change)
+            except (CoinUpdateError, OSError) as error:
+                bot.reply_to(message, str(error))
+            else:
+                bot.reply_to(message, "Coin successfully updated")
+                log_to_disk(f"Updated {change.symbol}: {change.field}", "/update_crypto", context_from_message(message))
         else:
             bot.reply_to(message, "Aborting command.")
 
