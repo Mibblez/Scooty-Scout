@@ -5,7 +5,6 @@ import sys
 from dotenv import load_dotenv
 import telebot
 import json
-import random
 import time
 import re
 import sqlite3
@@ -14,8 +13,6 @@ import requests
 
 from itertools import chain
 from ast import literal_eval
-from requests import Session
-from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 
 from threading import Thread
 
@@ -59,10 +56,8 @@ except (TypeError, ValueError, SyntaxError) as err:
     logger.error("ADMIN_IDS should be a list of integers, such as [1, 2, 3]")
     sys.exit(1)
 
-if None in [TELEGRAM_API_KEY, CMC_API_KEY, ETHERSCAN_API_KEY]:
-    logger.error(
-        "Missing API key(s) in .env: TELEGRAM_API_KEY, " "COINMARKETCAP_API_KEY and ETHERSCAN_API_KEY are required"
-    )
+if not TELEGRAM_API_KEY or not CMC_API_KEY:
+    logger.error("Missing API key(s) in .env: TELEGRAM_API_KEY and COINMARKETCAP_API_KEY are required")
     sys.exit(1)
 
 if not os.path.exists("cryptos.json"):
@@ -81,7 +76,9 @@ from price_notifications import uses_notification_db
 
 user_states = {}
 
-application = BotApplication(cryptos_json, CMC_API_KEY, notification_path="notifications.db")
+application = BotApplication(
+    cryptos_json, CMC_API_KEY, notification_path="notifications.db", etherscan_api_key=ETHERSCAN_API_KEY
+)
 TelegramAdapter(bot, application).register()
 
 
@@ -95,48 +92,6 @@ def dextools(message):
 
     if request in cryptos_json:
         bot.send_message(message.chat.id, "wip")
-
-
-@bot.message_handler(commands=["wen", "WEN"])
-def wen(message):
-    request = (message.text.split()[1] if len(message.text.split()) == 2 else "").lower()
-
-    if request == "":
-        return
-
-    if request == "lambo":
-        lambo_models = [
-            "https://www.lamborghini.com/en-en/models/aventador/aventador-svj",
-            "https://www.lamborghini.com/en-en/models/aventador/aventador-svj-roadster",
-            "https://www.lamborghini.com/en-en/models/aventador/aventador-lp-780-4-ultimae",
-            "https://www.lamborghini.com/en-en/models/aventador/aventador-lp-780-4-ultimae-roadster",
-            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo",
-            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-spyder",
-            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-rwd",
-            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-rwd-spyder",
-            "https://www.lamborghini.com/en-en/models/huracan/huracan-evo-fluo-capsule",
-            "https://www.lamborghini.com/en-en/models/huracan/huracan-sto",
-            "https://ezgo.txtsv.com/personal/golfcarts/freedom-rxv",
-        ]
-
-        # Reply with a link to a random lambo model from the lambo_models list
-        bot.reply_to(message, lambo_models[random.randrange(len(lambo_models))])
-    elif request == "moon":
-        replies = ["Ask Musk Daddy\n\nhttps://twitter.com/elonmusk", "Soon", "HODL", "Ask Rob", "WEN MOON?"]
-
-        # Reply with something stupid from the replies list
-        bot.reply_to(message, replies[random.randrange(len(replies))])
-        if os.path.exists("media/wen_moon.ogg"):
-            bot.send_audio(message.chat.id, audio=open("media/wen_moon.ogg", "rb"))
-    elif request == "aston":
-        aston_models = [
-            "https://www.astonmartin.com/en-us/models/aston-martin-valkyrie",
-            "https://www.astonmartin.com/en-us/models/dbx",
-            "https://www.astonmartin.com/en-us/models/new-vantage",
-            "https://www.astonmartin.com/en-us/models/db11",
-            "https://www.astonmartin.com/en-us/models/dbs-superleggera",
-        ]
-        bot.reply_to(message, aston_models[random.randrange(len(aston_models))])
 
 
 @bot.message_handler(commands=["start"])
@@ -157,45 +112,6 @@ def start_bot(message):
     connection.close()
 
     bot.reply_to(message, "Henlo")
-
-
-# TODO:  Different gas amounts with subcommands(normal transaction, uniswap, erc20, etc)
-@bot.message_handler(commands=["ethgas"])
-def ethgas(message):
-    gas_url = "https://api.etherscan.io/api"
-    gas_parameters = {"module": "gastracker", "action": "gasoracle", "apikey": ETHERSCAN_API_KEY}
-
-    stats_url = "https://api.etherscan.io/api"
-    stats_parameters = {"module": "stats", "action": "ethprice", "apikey": ETHERSCAN_API_KEY}
-
-    session = Session()
-
-    try:
-        gas_response = session.get(gas_url, params=gas_parameters)
-        gas_data = json.loads(gas_response.text)["result"]
-
-        stats_response = session.get(stats_url, params=stats_parameters)
-        stats_data = json.loads(stats_response.text)["result"]
-    except (ConnectionError, Timeout, TooManyRedirects) as e:
-        bot.send_message(message.chat.id, "Could not reach API. Try again later.")
-        logger.warning("Etherscan gas request failed: %s", type(e).__name__)
-        return
-
-    gwei_to_usd = 0.000000001 * float(stats_data["ethusd"])
-    uniswap_gas_limit = 152000
-
-    safe_gas_usd = round(float(gas_data["SafeGasPrice"]) * gwei_to_usd * uniswap_gas_limit, 4)
-    proposed_gas_usd = round(float(gas_data["ProposeGasPrice"]) * gwei_to_usd * uniswap_gas_limit, 4)
-    fast_gas_usd = round(float(gas_data["FastGasPrice"]) * gwei_to_usd * uniswap_gas_limit, 4)
-
-    bot_message = (
-        f"Uniswap Gas ({format(uniswap_gas_limit, ',')} gas limit)\n"
-        + f"Safe: {gas_data['SafeGasPrice']} gwei (${safe_gas_usd})\n"
-        + f"Proposed: {gas_data['ProposeGasPrice']} gwei (${proposed_gas_usd})\n"
-        + f"Fast: {gas_data['FastGasPrice']} gwei (${fast_gas_usd})"
-    )
-
-    bot.send_message(message.chat.id, bot_message)
 
 
 @bot.message_handler(

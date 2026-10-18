@@ -10,6 +10,21 @@ import price_alerts
 from backend_config import Backend
 from bot_application import BotApplication
 from command_context import CommandContext
+from ethereum_gas import GasEstimate, GasPrices
+
+
+@pytest.fixture
+def moon_audio(tmp_path):
+    path = tmp_path / "wen_moon.ogg"
+    path.write_bytes(b"OggS test audio")
+    return path
+
+
+@pytest.fixture
+def gas_prices():
+    return GasPrices(
+        [GasEstimate("Safe", 1.25, 0.38), GasEstimate("Proposed", 2, 0.608), GasEstimate("Fast", 3, 0.912)]
+    )
 
 
 @pytest.fixture

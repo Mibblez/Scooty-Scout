@@ -45,5 +45,11 @@ def run() -> None:
         cryptos = json.load(source)
 
     configure_logging()
-    application = BotApplication(cryptos, cmc_key, crypto_path, notification_path="discord_notifications.db")
+    application = BotApplication(
+        cryptos,
+        cmc_key,
+        crypto_path,
+        notification_path="discord_notifications.db",
+        etherscan_api_key=os.getenv("ETHERSCAN_API_KEY"),
+    )
     DiscordAdapter(application, admin_ids, guild_id).run(token)

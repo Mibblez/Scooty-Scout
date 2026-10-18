@@ -12,6 +12,7 @@ import bot_application
 from bot_application import CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError, CoinUpdateError
 from discord_adapter import DiscordAdapter
 from discord_bot import _admin_ids
+from wen import WenReply
 
 
 @pytest.fixture
@@ -105,6 +106,72 @@ def test_info_explains_unknown_coin(adapter, application, interaction, run_async
     run_async(command.callback(interaction, "missing"))
 
     interaction.followup.send.assert_awaited_once_with("Unknown coin: MISSING", ephemeral=False)
+
+
+def test_wen_offers_choices_and_uses_shared_reply(adapter, application, interaction, discord_context, run_async):
+    application.wen = Mock(return_value=WenReply("HODL"))
+    command = adapter.tree.get_command("wen")
+
+    run_async(command.callback(interaction, "moon"))
+
+    assert [choice.value for choice in command.parameters[0].choices] == ["moon", "lambo", "aston"]
+    application.wen.assert_called_once_with(discord_context, "moon")
+    interaction.response.send_message.assert_awaited_once_with("HODL")
+    interaction.followup.send.assert_not_awaited()
+
+
+def test_wen_sends_optional_moon_audio(adapter, application, interaction, moon_audio, run_async):
+    application.wen = Mock(return_value=WenReply("HODL", moon_audio))
+    command = adapter.tree.get_command("wen")
+
+    run_async(command.callback(interaction, "moon"))
+
+    interaction.response.send_message.assert_awaited_once_with("HODL")
+    attachment = interaction.followup.send.call_args.kwargs["file"]
+    assert attachment.filename == "wen_moon.ogg"
+    assert attachment.fp.closed
+
+
+def test_wen_keeps_text_reply_when_audio_upload_fails(adapter, application, interaction, moon_audio, run_async):
+    application.wen = Mock(return_value=WenReply("HODL", moon_audio))
+    interaction.followup.send.side_effect = discord.HTTPException(
+        SimpleNamespace(status=413, reason="Payload Too Large"), "File too large"
+    )
+    command = adapter.tree.get_command("wen")
+
+    run_async(command.callback(interaction, "moon"))
+
+    interaction.response.send_message.assert_awaited_once_with("HODL")
+    attachment = interaction.followup.send.call_args.kwargs["file"]
+    assert attachment.fp.closed
+
+
+def test_ethgas_shows_gas_tiers_in_a_card(adapter, application, interaction, discord_context, gas_prices, run_async):
+    application.ethgas = Mock(return_value=gas_prices)
+    command = adapter.tree.get_command("ethgas")
+
+    run_async(command.callback(interaction))
+
+    interaction.response.defer.assert_awaited_once_with(thinking=True)
+    application.ethgas.assert_called_once_with(discord_context)
+    embed = interaction.followup.send.call_args.kwargs["embed"]
+    assert embed.title == "Ethereum gas"
+    assert embed.description == "Estimated Uniswap swap cost • 152,000 gas"
+    assert [(field.name, field.value) for field in embed.fields] == [
+        ("Safe", "1.25 gwei ($0.3800)"),
+        ("Proposed", "2 gwei ($0.6080)"),
+        ("Fast", "3 gwei ($0.9120)"),
+    ]
+
+
+def test_ethgas_explains_missing_configuration(adapter, interaction, run_async):
+    command = adapter.tree.get_command("ethgas")
+
+    run_async(command.callback(interaction))
+
+    interaction.followup.send.assert_awaited_once_with(
+        "Ethereum gas prices are not configured. Set ETHERSCAN_API_KEY to use /ethgas."
+    )
 
 
 def test_check_notifications_replies_privately(adapter, application, interaction, run_async):

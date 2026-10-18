@@ -12,7 +12,9 @@ from typing import Any
 
 from bot_utilities import cmc_id_map, get_coin_data, get_coin_info, unknown_coin, usage_error
 from command_context import CommandContext
+from ethereum_gas import GasPrices, get_ethereum_gas
 from price_alerts import PriceAlerts, PriceAlertError
+from wen import WenReply, get_wen_reply
 
 logger = logging.getLogger("scooty_scout")
 
@@ -105,9 +107,11 @@ class BotApplication:
         cmc_api_key: str | None = None,
         crypto_path: str | Path = "cryptos.json",
         notification_path: str | Path | None = None,
+        etherscan_api_key: str | None = None,
     ) -> None:
         self.cryptos = dict(cryptos) if not isinstance(cryptos, dict) else cryptos
         self.cmc_api_key = cmc_api_key
+        self.etherscan_api_key = etherscan_api_key
         self.crypto_path = Path(crypto_path)
         self._catalog_lock = Lock()
         self.price_alerts = PriceAlerts(self.cryptos, cmc_api_key, notification_path) if notification_path else None
@@ -115,6 +119,10 @@ class BotApplication:
     def coins(self, _context: CommandContext) -> str:
         """List known coins without depending on a platform's message API."""
         return "Known coins:\n" + " ; ".join(self.cryptos)
+
+    def wen(self, _context: CommandContext, thing: str) -> WenReply | None:
+        """Choose a joke response and optional audio for any platform."""
+        return get_wen_reply(thing)
 
     def info(self, _context: CommandContext, symbol: str) -> CoinInfo:
         """Read saved coin metadata without depending on a platform's presentation."""
@@ -171,6 +179,10 @@ class BotApplication:
 
         movement_direction = "⬆️" if percent_change_24h > 0.0 else "⬇️"
         return f"{symbol} Price: ${latest_price}\n" f"{movement_direction} {percent_change_24h}% (24H)"
+
+    def ethgas(self, _context: CommandContext) -> GasPrices:
+        """Get Ethereum gas tiers and USD estimates through the shared lookup."""
+        return get_ethereum_gas(self.etherscan_api_key)
 
     def price_notify(self, context: CommandContext, symbol: str, target: str | float) -> str:
         """Set or replace one user's price alert through the shared service."""

@@ -1,10 +1,15 @@
 """Register Telegram commands and translate their inputs and responses."""
 
+import logging
+
 from backend_config import Backend
 from bot_application import BotApplication, CoinInfoError
 from command_context import CommandContext
 from bot_utilities import usage_error
+from ethereum_gas import GasPriceError
 from price_alerts import PriceAlertError
+
+logger = logging.getLogger("scooty_scout")
 
 
 def context_from_message(message) -> CommandContext:
@@ -43,6 +48,30 @@ class TelegramAdapter:
             arguments = message.text.split()
             symbol = arguments[1] if len(arguments) == 2 else ""
             response = self.application.price(context_from_message(message), symbol)
+            self.bot.send_message(message.chat.id, response)
+
+        @self.bot.message_handler(commands=["wen", "WEN"])
+        def wen(message):
+            arguments = message.text.split()
+            if len(arguments) != 2:
+                return
+            reply = self.application.wen(context_from_message(message), arguments[1])
+            if reply is None:
+                return
+            self.bot.reply_to(message, reply.text)
+            if reply.audio_path is not None:
+                try:
+                    with reply.audio_path.open("rb") as audio:
+                        self.bot.send_audio(message.chat.id, audio=audio)
+                except OSError:
+                    logger.warning("Telegram /wen audio could not be sent")
+
+        @self.bot.message_handler(commands=["ethgas"])
+        def ethgas(message):
+            try:
+                response = self.application.ethgas(context_from_message(message)).as_text()
+            except GasPriceError as error:
+                response = str(error)
             self.bot.send_message(message.chat.id, response)
 
         @self.bot.message_handler(commands=["price_notify", "pnot"])

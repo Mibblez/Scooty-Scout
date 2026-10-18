@@ -8,7 +8,9 @@ import pytest
 from backend_config import Backend
 from bot_application import BotApplication, CoinInfo
 from command_context import CommandContext
+from ethereum_gas import GasPriceError
 from telegram_adapter import TelegramAdapter
+from wen import WenReply
 
 TELEGRAM_CONTEXT = CommandContext(Backend.TELEGRAM, "7", "-1001", "Ada Lovelace")
 
@@ -18,6 +20,7 @@ class FakeTelegramBot:
         self.handlers = {}
         self.reply_to = Mock()
         self.send_message = Mock()
+        self.send_audio = Mock()
 
     def message_handler(self, *, commands):
         def register(handler):
@@ -29,11 +32,13 @@ class FakeTelegramBot:
 
 
 @pytest.fixture
-def telegram_application():
+def telegram_application(gas_prices):
     return SimpleNamespace(
         coins=Mock(return_value="Known coins:\nBTC"),
         info=Mock(return_value=CoinInfo("TST", "Test Coin", [("Website", "https://example.com")], [])),
         price=Mock(return_value="Price response"),
+        ethgas=Mock(return_value=gas_prices),
+        wen=Mock(return_value=WenReply("HODL")),
         price_notify=Mock(return_value="Notification response"),
         check_notifications=Mock(return_value="TST at $12.0\n"),
         delete_notification=Mock(return_value="Notification for TST deleted"),
@@ -85,6 +90,59 @@ def test_telegram_info_translates_arguments(telegram_bot, telegram_application, 
     telegram_bot.send_message.assert_called_once_with(
         message.chat.id, "Test Coin (TST)\n\nWebsite: https://example.com"
     )
+
+
+def test_telegram_ethgas_uses_shared_lookup(telegram_bot, telegram_application, message, gas_prices):
+    message.text = "/ethgas"
+
+    telegram_bot.handlers["ethgas"](message)
+
+    telegram_application.ethgas.assert_called_once_with(TELEGRAM_CONTEXT)
+    telegram_bot.send_message.assert_called_once_with(message.chat.id, gas_prices.as_text())
+
+
+def test_telegram_ethgas_explains_lookup_failure(telegram_bot, telegram_application, message):
+    message.text = "/ethgas"
+    telegram_application.ethgas.side_effect = GasPriceError("Could not get Ethereum gas prices.")
+
+    telegram_bot.handlers["ethgas"](message)
+
+    telegram_bot.send_message.assert_called_once_with(message.chat.id, "Could not get Ethereum gas prices.")
+
+
+@pytest.mark.parametrize(
+    ("command", "thing"), [("wen", "MOON"), ("WEN", "lambo")], ids=["uppercase-topic", "uppercase-command"]
+)
+def test_telegram_wen_translates_arguments(telegram_bot, telegram_application, message, command, thing):
+    message.text = f"/{command} {thing}"
+
+    telegram_bot.handlers[command](message)
+
+    telegram_application.wen.assert_called_once_with(TELEGRAM_CONTEXT, thing)
+    telegram_bot.reply_to.assert_called_once_with(message, "HODL")
+    telegram_bot.send_audio.assert_not_called()
+
+
+@pytest.mark.parametrize("text", ["/wen", "/wen moon lambo"], ids=["missing-topic", "too-many-arguments"])
+def test_telegram_wen_ignores_invalid_arguments(telegram_bot, telegram_application, message, text):
+    message.text = text
+
+    telegram_bot.handlers["wen"](message)
+
+    telegram_application.wen.assert_not_called()
+    telegram_bot.reply_to.assert_not_called()
+
+
+def test_telegram_wen_sends_optional_audio(telegram_bot, telegram_application, message, moon_audio):
+    message.text = "/wen moon"
+    telegram_application.wen.return_value = WenReply("HODL", moon_audio)
+
+    telegram_bot.handlers["wen"](message)
+
+    telegram_bot.reply_to.assert_called_once_with(message, "HODL")
+    audio = telegram_bot.send_audio.call_args.kwargs["audio"]
+    assert audio.name == str(moon_audio)
+    assert audio.closed
 
 
 @pytest.mark.parametrize("command", ["check_notifications", "cnot"], ids=["full-command", "alias"])

@@ -3,7 +3,8 @@
 import asyncio
 import io
 import logging
-from contextlib import suppress
+from contextlib import closing, suppress
+from typing import Literal
 
 import discord
 from discord import app_commands
@@ -21,6 +22,7 @@ from bot_application import (
 )
 from bot_utilities import log_to_disk
 from command_context import CommandContext
+from ethereum_gas import GasPriceError
 from price_alerts import PriceAlertError
 
 logger = logging.getLogger("scooty_scout")
@@ -183,6 +185,21 @@ class DiscordAdapter(discord.Client):
                 interaction, response, filename="info.txt", attachment_message="Coin information is attached."
             )
 
+        @self.tree.command(name="wen", description="Wen moon, lambo, or aston?")
+        @app_commands.describe(thing="What are you waiting for?")
+        async def wen(interaction: discord.Interaction, thing: Literal["moon", "lambo", "aston"]) -> None:
+            reply = self.bot_application.wen(context_from_interaction(interaction), thing)
+            if reply is None:
+                await interaction.response.send_message("Choose moon, lambo, or aston.", ephemeral=True)
+                return
+            await interaction.response.send_message(reply.text)
+            if reply.audio_path is not None:
+                try:
+                    with closing(discord.File(reply.audio_path, filename=reply.audio_path.name)) as audio:
+                        await interaction.followup.send(file=audio)
+                except OSError, discord.HTTPException:
+                    logger.warning("Discord /wen audio could not be sent")
+
         @self.tree.command(name="price", description="Get a coin's USD price and 24-hour change")
         @app_commands.describe(symbol="Known coin symbol, such as BTC (see /coins)")
         async def price(interaction: discord.Interaction, symbol: str) -> None:
@@ -198,6 +215,28 @@ class DiscordAdapter(discord.Client):
             await send_followup_text(
                 interaction, response, filename="price.txt", attachment_message="Price command response is attached."
             )
+
+        @self.tree.command(name="ethgas", description="Show Ethereum gas rates and estimated Uniswap costs in USD")
+        async def ethgas(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                prices = await asyncio.to_thread(self.bot_application.ethgas, context_from_interaction(interaction))
+            except GasPriceError as error:
+                await interaction.followup.send(str(error))
+                return
+            except Exception:
+                logger.exception("Discord /ethgas lookup failed")
+                await interaction.followup.send("Could not get Ethereum gas prices. Try again later.")
+                return
+            embed = discord.Embed(
+                title="Ethereum gas",
+                description=f"Estimated Uniswap swap cost • {prices.gas_limit:,} gas",
+                color=discord.Color.blurple(),
+            )
+            for estimate in prices.estimates:
+                embed.add_field(name=estimate.label, value=estimate.as_text(), inline=True)
+            embed.set_footer(text="Source: Etherscan • Actual transaction costs vary.")
+            await interaction.followup.send(embed=embed)
 
         @self.tree.command(name="price_notify", description="DM you when a coin crosses your target USD price")
         @app_commands.describe(symbol="Known coin symbol (see /coins)", target="Target price in USD")
