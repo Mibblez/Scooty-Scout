@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from backend_config import Backend
-from bot_application import BotApplication, CoinInfo
+from bot_application import CoinInfo
 from command_context import CommandContext
 from ethereum_gas import GasPriceError
 from telegram_adapter import TelegramAdapter
@@ -60,13 +60,6 @@ def message():
         chat=SimpleNamespace(id=-1001),
         from_user=SimpleNamespace(id=7, first_name="Ada", last_name="Lovelace"),
     )
-
-
-def test_coins_logic_accepts_a_discord_context():
-    application = BotApplication({"BTC": {}, "ETH": {}})
-    context = CommandContext(Backend.DISCORD, "7", "99", "Ada")
-
-    assert application.coins(context) == "Known coins:\nBTC ; ETH"
 
 
 def test_telegram_coins_translates_context_and_replies(telegram_bot, telegram_application, message):

@@ -28,27 +28,19 @@ def test_backend_rejects_unknown_value() -> None:
         get_backend("matrix")
 
 
-def test_main_starts_telegram_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    starts: list[str] = []
-    telegram_module = ModuleType("telegram_bot")
-    telegram_module.run = lambda: starts.append("telegram")
-    monkeypatch.setitem(sys.modules, "telegram_bot", telegram_module)
+@pytest.mark.parametrize(
+    ("backend", "module_name"),
+    [(Backend.TELEGRAM, "telegram_bot"), (Backend.DISCORD, "discord_bot")],
+    ids=["telegram", "discord"],
+)
+def test_main_starts_selected_backend(monkeypatch, backend, module_name):
+    starts = []
+    module = ModuleType(module_name)
+    module.run = lambda: starts.append(backend)
+    monkeypatch.setitem(sys.modules, module_name, module)
     monkeypatch.setattr(main, "load_dotenv", lambda: None)
-    monkeypatch.setattr(main, "get_backend", lambda: Backend.TELEGRAM)
+    monkeypatch.setattr(main, "get_backend", lambda: backend)
 
     main.main()
 
-    assert starts == ["telegram"]
-
-
-def test_main_starts_discord_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    starts: list[str] = []
-    discord_module = ModuleType("discord_bot")
-    discord_module.run = lambda: starts.append("discord")
-    monkeypatch.setitem(sys.modules, "discord_bot", discord_module)
-    monkeypatch.setattr(main, "load_dotenv", lambda: None)
-    monkeypatch.setattr(main, "get_backend", lambda: Backend.DISCORD)
-
-    main.main()
-
-    assert starts == ["discord"]
+    assert starts == [backend]

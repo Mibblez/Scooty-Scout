@@ -43,10 +43,19 @@ def adapter(application, recipient, run_async):
 
 
 @pytest.fixture
-def triggered_alert(application, discord_context, market_lookup, market_quote):
-    application.price_notify(discord_context, "TST", 12)
+def invoke_command(adapter, interaction, run_async):
+    def invoke(name, *arguments):
+        command = adapter.tree.get_command(name)
+        return run_async(command.callback(interaction, *arguments))
+
+    return invoke
+
+
+@pytest.fixture
+def triggered_alert(alert_application, discord_context, market_lookup, market_quote):
+    alert_application.price_notify(discord_context, "TST", 12)
     market_lookup.return_value = market_quote(13)
-    return application.price_alerts.due_notifications()[0]
+    return alert_application.price_alerts.due_notifications()[0]
 
 
 @pytest.fixture
@@ -55,14 +64,13 @@ def new_coin():
 
 
 @pytest.fixture
-def pending_update(adapter, interaction, run_async):
+def pending_update(invoke_command, interaction):
     interaction.user.id = 7
-    command = adapter.tree.get_command("update_crypto")
-    run_async(command.callback(interaction, "tst", "website", "https://new.example.com"))
+    invoke_command("update_crypto", "tst", "website", "https://new.example.com")
     return interaction.followup.send.call_args.kwargs["view"]
 
 
-def test_info_shows_readable_coin_card(adapter, application, interaction, run_async):
+def test_info_shows_readable_coin_card(application, interaction, invoke_command):
     application.info = Mock(
         return_value=CoinInfo(
             "TST",
@@ -71,9 +79,8 @@ def test_info_shows_readable_coin_card(adapter, application, interaction, run_as
             [("CoinMarketCap", "https://coinmarketcap.com/currencies/test-coin/")],
         )
     )
-    command = adapter.tree.get_command("info")
 
-    run_async(command.callback(interaction, "tst"))
+    invoke_command("info", "tst")
 
     interaction.response.defer.assert_awaited_once_with(thinking=True)
     embed = interaction.followup.send.call_args.kwargs["embed"]
@@ -87,32 +94,30 @@ def test_info_shows_readable_coin_card(adapter, application, interaction, run_as
     assert embed.fields[2].inline is False
 
 
-def test_info_attaches_metadata_that_exceeds_embed_limits(adapter, application, interaction, run_async):
+def test_info_attaches_metadata_that_exceeds_embed_limits(application, interaction, invoke_command):
     info = CoinInfo("TST", "Test Coin", [("Description", "x" * 2100)], [])
     application.info = Mock(return_value=info)
-    command = adapter.tree.get_command("info")
 
-    run_async(command.callback(interaction, "TST"))
+    invoke_command("info", "TST")
 
     attachment = interaction.followup.send.call_args.kwargs["file"]
     assert attachment.filename == "info.txt"
     assert attachment.fp.read().decode("utf-8") == info.as_text()
 
 
-def test_info_explains_unknown_coin(adapter, application, interaction, run_async):
+def test_info_explains_unknown_coin(application, interaction, invoke_command):
     application.info = Mock(side_effect=CoinInfoError("Unknown coin: MISSING"))
-    command = adapter.tree.get_command("info")
 
-    run_async(command.callback(interaction, "missing"))
+    invoke_command("info", "missing")
 
     interaction.followup.send.assert_awaited_once_with("Unknown coin: MISSING", ephemeral=False)
 
 
-def test_wen_offers_choices_and_uses_shared_reply(adapter, application, interaction, discord_context, run_async):
+def test_wen_offers_choices_and_uses_shared_reply(adapter, application, interaction, discord_context, invoke_command):
     application.wen = Mock(return_value=WenReply("HODL"))
     command = adapter.tree.get_command("wen")
 
-    run_async(command.callback(interaction, "moon"))
+    invoke_command("wen", "moon")
 
     assert [choice.value for choice in command.parameters[0].choices] == ["moon", "lambo", "aston"]
     application.wen.assert_called_once_with(discord_context, "moon")
@@ -120,11 +125,16 @@ def test_wen_offers_choices_and_uses_shared_reply(adapter, application, interact
     interaction.followup.send.assert_not_awaited()
 
 
-def test_wen_sends_optional_moon_audio(adapter, application, interaction, moon_audio, run_async):
+@pytest.mark.parametrize(
+    "upload_error",
+    [None, discord.HTTPException(SimpleNamespace(status=413, reason="Payload Too Large"), "File too large")],
+    ids=["successful-upload", "failed-upload"],
+)
+def test_wen_replies_and_closes_optional_audio(application, interaction, moon_audio, invoke_command, upload_error):
     application.wen = Mock(return_value=WenReply("HODL", moon_audio))
-    command = adapter.tree.get_command("wen")
+    interaction.followup.send.side_effect = upload_error
 
-    run_async(command.callback(interaction, "moon"))
+    invoke_command("wen", "moon")
 
     interaction.response.send_message.assert_awaited_once_with("HODL")
     attachment = interaction.followup.send.call_args.kwargs["file"]
@@ -132,25 +142,10 @@ def test_wen_sends_optional_moon_audio(adapter, application, interaction, moon_a
     assert attachment.fp.closed
 
 
-def test_wen_keeps_text_reply_when_audio_upload_fails(adapter, application, interaction, moon_audio, run_async):
-    application.wen = Mock(return_value=WenReply("HODL", moon_audio))
-    interaction.followup.send.side_effect = discord.HTTPException(
-        SimpleNamespace(status=413, reason="Payload Too Large"), "File too large"
-    )
-    command = adapter.tree.get_command("wen")
-
-    run_async(command.callback(interaction, "moon"))
-
-    interaction.response.send_message.assert_awaited_once_with("HODL")
-    attachment = interaction.followup.send.call_args.kwargs["file"]
-    assert attachment.fp.closed
-
-
-def test_ethgas_shows_gas_tiers_in_a_card(adapter, application, interaction, discord_context, gas_prices, run_async):
+def test_ethgas_shows_gas_tiers_in_a_card(application, interaction, discord_context, gas_prices, invoke_command):
     application.ethgas = Mock(return_value=gas_prices)
-    command = adapter.tree.get_command("ethgas")
 
-    run_async(command.callback(interaction))
+    invoke_command("ethgas")
 
     interaction.response.defer.assert_awaited_once_with(thinking=True)
     application.ethgas.assert_called_once_with(discord_context)
@@ -164,33 +159,29 @@ def test_ethgas_shows_gas_tiers_in_a_card(adapter, application, interaction, dis
     ]
 
 
-def test_ethgas_explains_missing_configuration(adapter, interaction, run_async):
-    command = adapter.tree.get_command("ethgas")
-
-    run_async(command.callback(interaction))
+def test_ethgas_explains_missing_configuration(interaction, invoke_command):
+    invoke_command("ethgas")
 
     interaction.followup.send.assert_awaited_once_with(
         "Ethereum gas prices are not configured. Set ETHERSCAN_API_KEY to use /ethgas."
     )
 
 
-def test_check_notifications_replies_privately(adapter, application, interaction, run_async):
+def test_check_notifications_replies_privately(application, interaction, invoke_command):
     response = "TST at $12.0\n"
     application.check_notifications = Mock(return_value=response)
-    command = adapter.tree.get_command("check_notifications")
 
-    run_async(command.callback(interaction))
+    invoke_command("check_notifications")
 
     interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
     interaction.followup.send.assert_awaited_once_with(response, ephemeral=True)
 
 
-def test_check_notifications_attaches_long_lists_privately(adapter, application, interaction, run_async):
+def test_check_notifications_attaches_long_lists_privately(application, interaction, invoke_command):
     long_response = "TST at $12.0\n" * 200
     application.check_notifications = Mock(return_value=long_response)
-    command = adapter.tree.get_command("check_notifications")
 
-    run_async(command.callback(interaction))
+    invoke_command("check_notifications")
 
     reply = interaction.followup.send.call_args
     attachment = reply.kwargs["file"]
@@ -199,12 +190,11 @@ def test_check_notifications_attaches_long_lists_privately(adapter, application,
     assert attachment.fp.read().decode("utf-8") == long_response
 
 
-def test_delete_notification_replies_privately(adapter, application, interaction, discord_context, run_async):
+def test_delete_notification_replies_privately(application, interaction, discord_context, invoke_command):
     response = "Notification for TST deleted"
     application.delete_notification = Mock(return_value=response)
-    command = adapter.tree.get_command("delete_notification")
 
-    run_async(command.callback(interaction, "tst"))
+    invoke_command("delete_notification", "tst")
 
     application.delete_notification.assert_called_once_with(discord_context, "tst")
     interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
@@ -212,10 +202,10 @@ def test_delete_notification_replies_privately(adapter, application, interaction
 
 
 def test_checker_skips_alert_canceled_during_user_lookup(
-    adapter, application, recipient, discord_context, triggered_alert, run_async
+    adapter, alert_application, recipient, discord_context, triggered_alert, run_async
 ):
     async def cancel_during_user_lookup(_user_id):
-        application.delete_notification(discord_context, triggered_alert.coin)
+        alert_application.delete_notification(discord_context, triggered_alert.coin)
         return recipient
 
     adapter.fetch_user.side_effect = cancel_during_user_lookup
@@ -223,39 +213,35 @@ def test_checker_skips_alert_canceled_during_user_lookup(
     run_async(adapter.check_price_notifications())
 
     recipient.send.assert_not_awaited()
-    assert application.check_notifications(discord_context) == "No notifications set"
+    assert alert_application.check_notifications(discord_context) == "No notifications set"
 
 
-def test_price_notify_registers_user_and_confirms_privately(adapter, application, interaction, run_async):
-    command = adapter.tree.get_command("price_notify")
-
-    run_async(command.callback(interaction, "tst", 12.0))
+def test_price_notify_registers_user_and_confirms_privately(alert_application, interaction, invoke_command):
+    invoke_command("price_notify", "tst", 12.0)
 
     interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
     confirmation = interaction.followup.send.call_args
     assert "Created notification for TST at $12.0" in confirmation.args[0]
     assert confirmation.kwargs["ephemeral"] is True
-    assert application.price_alerts.has_user(str(interaction.user.id))
+    assert alert_application.price_alerts.has_user(str(interaction.user.id))
 
 
-def test_price_notify_explains_invalid_target(adapter, interaction, run_async):
-    command = adapter.tree.get_command("price_notify")
-
-    run_async(command.callback(interaction, "TST", -1))
+def test_price_notify_explains_invalid_target(alert_application, interaction, invoke_command):
+    invoke_command("price_notify", "TST", -1)
 
     confirmation = interaction.followup.send.call_args
     assert "positive, finite" in confirmation.args[0]
     assert confirmation.kwargs["ephemeral"] is True
 
 
-def test_blocked_dm_is_retained_and_retried(adapter, application, recipient, triggered_alert, run_async):
+def test_blocked_dm_is_retained_and_retried(adapter, alert_application, recipient, triggered_alert, run_async):
     recipient.send.side_effect = discord.Forbidden(
         SimpleNamespace(status=403, reason="Forbidden"), "Cannot send messages to this user"
     )
 
     run_async(adapter.check_price_notifications())
 
-    assert application.price_alerts.due_notifications() == [triggered_alert]
+    assert alert_application.price_alerts.due_notifications() == [triggered_alert]
     recipient.send.side_effect = None
     recipient.send.reset_mock()
 
@@ -263,15 +249,15 @@ def test_blocked_dm_is_retained_and_retried(adapter, application, recipient, tri
     run_async(adapter.check_price_notifications())
 
     recipient.send.assert_awaited_once_with(triggered_alert.message())
-    assert application.price_alerts.due_notifications() == []
+    assert alert_application.price_alerts.due_notifications() == []
     adapter.fetch_user.assert_awaited_with(triggered_alert.user_id)
 
 
-def test_alert_scheduler_waits_for_ready_and_stops_on_close(adapter, application, run_async):
+def test_alert_scheduler_waits_for_ready_and_stops_on_close(adapter, alert_application, run_async):
     ready = asyncio.Event()
     adapter.wait_until_ready = AsyncMock(side_effect=ready.wait)
     adapter.tree.sync = AsyncMock()
-    application.price_alerts.due_notifications = Mock(return_value=[])
+    alert_application.price_alerts.due_notifications = Mock(return_value=[])
 
     run_async(adapter.setup_hook())
     run_async(asyncio.sleep(0))
@@ -280,7 +266,7 @@ def test_alert_scheduler_waits_for_ready_and_stops_on_close(adapter, application
     assert adapter.check_price_notifications.is_running()
     assert adapter.check_price_notifications.minutes == 15
     adapter.wait_until_ready.assert_awaited_once()
-    application.price_alerts.due_notifications.assert_not_called()
+    alert_application.price_alerts.due_notifications.assert_not_called()
 
     run_async(adapter.close())
 
@@ -297,13 +283,12 @@ def test_alert_scheduler_waits_for_ready_and_stops_on_close(adapter, application
     ids=["falling-price", "small-rising-price"],
 )
 def test_price_defers_lookup_and_formats_quote(
-    adapter,
     application,
     interaction,
     discord_context,
     market_lookup,
     market_quote,
-    run_async,
+    invoke_command,
     current_price,
     change,
     expected,
@@ -315,9 +300,8 @@ def test_price_defers_lookup_and_formats_quote(
 
     market_lookup.side_effect = lookup
     application.price = Mock(wraps=application.price)
-    command = adapter.tree.get_command("price")
 
-    run_async(command.callback(interaction, " tst "))
+    invoke_command("price", " tst ")
 
     application.price.assert_called_once_with(discord_context, " tst ")
     market_lookup.assert_called_once_with("42", "cmc-key")
@@ -349,7 +333,6 @@ def test_price_rejects_unknown_coin_without_lookup(application, discord_context,
 
 
 def test_coin_creation_is_shared_and_persisted(application, discord_context, new_coin, monkeypatch):
-    application.cryptos.clear()
     monkeypatch.setattr(bot_application, "cmc_id_map", Mock(return_value={"data": [{"id": 43}]}))
     monkeypatch.setattr(
         bot_application,
@@ -372,8 +355,9 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
     candidate = application.prepare_new_coin("new")
     application.add_coin(candidate)
 
-    assert application.coins(discord_context) == "Known coins:\nNEW"
+    assert application.coins(discord_context) == "Known coins:\nTST ; NEW"
     saved_coins = json.loads(application.crypto_path.read_text(encoding="utf-8"))
+    assert saved_coins["TST"] == {"cmc_id": "42"}
     assert saved_coins["NEW"]["cmc_id"] == "43"
     assert saved_coins["NEW"]["cmc_slug"] == "new-coin"
     with pytest.raises(CoinCreationError, match="already known"):
@@ -385,10 +369,8 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
     [("new_crypto", ("NEW",)), ("update_crypto", ("TST", "website", "https://example.com"))],
     ids=["add-coin", "update-coin"],
 )
-def test_coin_management_requires_admin(adapter, application, interaction, run_async, command_name, arguments):
-    command = adapter.tree.get_command(command_name)
-
-    run_async(command.callback(interaction, *arguments))
+def test_coin_management_requires_admin(application, interaction, invoke_command, command_name, arguments):
+    invoke_command(command_name, *arguments)
 
     reply = interaction.response.send_message.call_args
     assert "Only admins" in reply.args[0]
@@ -397,19 +379,20 @@ def test_coin_management_requires_admin(adapter, application, interaction, run_a
     assert not application.crypto_path.exists()
 
 
-def test_new_crypto_confirmation_saves_coin(adapter, application, interaction, new_coin, run_async):
+def test_new_crypto_confirmation_calls_shared_save(application, interaction, new_coin, invoke_command, run_async):
     interaction.user.id = 7
     application.prepare_new_coin = Mock(return_value=new_coin)
-    command = adapter.tree.get_command("new_crypto")
-    run_async(command.callback(interaction, "NEW"))
+    application.add_coin = Mock()
+    invoke_command("new_crypto", "NEW")
     confirmation_view = interaction.followup.send.call_args.kwargs["view"]
 
     run_async(confirmation_view.children[0].callback(interaction))
 
-    reply = interaction.response.edit_message.call_args
-    assert "has been added" in reply.kwargs["content"]
-    saved_coins = json.loads(application.crypto_path.read_text(encoding="utf-8"))
-    assert "NEW" in saved_coins
+    application.prepare_new_coin.assert_called_once_with("NEW")
+    application.add_coin.assert_called_once_with(new_coin)
+    interaction.response.edit_message.assert_awaited_once_with(
+        content="Success. NEW has been added to the bot.", view=None
+    )
 
 
 def test_update_crypto_previews_change_privately(application, interaction, pending_update):
@@ -424,11 +407,12 @@ def test_update_crypto_previews_change_privately(application, interaction, pendi
     assert not application.crypto_path.exists()
 
 
-def test_update_crypto_confirmation_saves_coin(application, interaction, pending_update, run_async):
+def test_update_crypto_confirmation_calls_shared_save(application, interaction, pending_update, run_async):
+    application.update_coin = Mock()
+
     run_async(pending_update.children[0].callback(interaction))
 
-    saved = json.loads(application.crypto_path.read_text(encoding="utf-8"))
-    assert saved["TST"]["INFO"]["website"] == "https://new.example.com"
+    application.update_coin.assert_called_once_with(pending_update.change)
     interaction.edit_original_response.assert_awaited_once_with(
         content="Success. TST's website has been updated.", attachments=[], view=None
     )
@@ -455,11 +439,10 @@ def test_update_crypto_buttons_reject_other_users(interaction, pending_update, r
     )
 
 
-def test_update_crypto_explains_unknown_coin(adapter, interaction, run_async):
+def test_update_crypto_explains_unknown_coin(interaction, invoke_command):
     interaction.user.id = 7
-    command = adapter.tree.get_command("update_crypto")
 
-    run_async(command.callback(interaction, "missing", "website", "https://example.com"))
+    invoke_command("update_crypto", "missing", "website", "https://example.com")
 
     interaction.followup.send.assert_awaited_once_with("Cannot update coin: unknown coin MISSING", ephemeral=True)
 
@@ -481,13 +464,12 @@ def test_update_crypto_explains_save_failure(application, interaction, pending_u
     assert not application.crypto_path.exists()
 
 
-def test_update_crypto_attaches_long_previews(adapter, application, interaction, run_async):
+def test_update_crypto_attaches_long_previews(application, interaction, invoke_command):
     interaction.user.id = 7
     old_value = "x" * 2100
     application.cryptos["TST"]["INFO"] = {"custom_note": old_value}
-    command = adapter.tree.get_command("update_crypto")
 
-    run_async(command.callback(interaction, "TST", "custom_note", "Shorter note"))
+    invoke_command("update_crypto", "TST", "custom_note", "Shorter note")
 
     reply = interaction.followup.send.call_args
     attachment = reply.kwargs["file"]

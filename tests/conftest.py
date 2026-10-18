@@ -54,13 +54,20 @@ def application(tmp_path, market_lookup):
         {"TST": {"cmc_id": "42"}},
         "cmc-key",
         crypto_path=tmp_path / "cryptos.json",
-        notification_path=tmp_path / "discord_notifications.db",
     )
 
 
 @pytest.fixture
-def alerts(application):
-    return application.price_alerts
+def alert_application(application, tmp_path):
+    application.price_alerts = price_alerts.PriceAlerts(
+        application.cryptos, application.cmc_api_key, tmp_path / "discord_notifications.db"
+    )
+    return application
+
+
+@pytest.fixture
+def alerts(alert_application):
+    return alert_application.price_alerts
 
 
 @pytest.fixture
