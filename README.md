@@ -1,262 +1,233 @@
 # Scooty Scout
 
-## Crypto Market and Price Alert Bot
+Scooty Scout is a cryptocurrency tracker bot for Discord and Telegram. It
+provides coin information, price notifications by DM, group notifications, and
+saved image and video commands.
 
-Scooty Scout supports Telegram and Discord backends for cryptocurrency information.
-Discord command coverage is being added incrementally; `/coins` and `/new_crypto` are available now.
+The bot runs one platform per process. Discord uses native slash commands, and
+Telegram uses text commands.
 
-# Table of Contents
+## Setup
 
-* [Setup](#setup)
-    * [Python Version](#python-version)
-    * [Backend Selection](#backend-selection)
-    * [Tests](#tests)
-    * [Logging](#logging)
-    * [Environment File](#environment-file)
-    * [Cryptocurrency JSON File](#cryptocurrency-json-file)
-    * [Telegram Bot Setup](#telegram-bot-setup)
-    * [Discord Bot Setup](#discord-bot-setup)
-* [General Commands](#general-commands)
-* [Price Notification Commands](#price-notification-commands)
-* [Misc Commands](#misc-commands)
+The bot requires Python 3.14.x, a bot token for your chosen platform, and a
+[CoinMarketCap API key](https://coinmarketcap.com/api/).
 
-# Setup
+Clone the repository and open its directory:
 
-## Python Version
+```sh
+git https://github.com/Mibblez/Scooty-Scout.git
+cd Scooty-Scout
+```
 
-This project uses Python 3.14.x (tested with Python 3.14.8). Install the dependencies with:
+Create and activate a virtual environment. On Windows, use PowerShell:
+
+```powershell
+py -3.14 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+On macOS or Linux, use bash or zsh:
+
+```sh
+python3.14 -m venv .venv
+source .venv/bin/activate
+```
+
+Install the dependencies:
 
 ```sh
 python -m pip install -r requirements.txt
 ```
 
-## Backend Selection
+For a new installation, copy [cryptos_example.json](cryptos_example.json) to
+`cryptos.json`. The example contains BNB and SAND.
 
-Start the bot with `python main.py`. `BOT_BACKEND` selects which chat platform to
-run and defaults to `telegram`, preserving existing deployments. Run one backend
-per process. Discord has its own token and admin IDs.
+## Configuration
 
-## Tests
+The `.env` file contains the API keys and admin IDs for your chosen platform.
+Create it in the project directory using an example below, then replace the keys
+and IDs with your values. `BOT_BACKEND` selects the platform and defaults to
+`telegram` if you leave it out.
 
-Install the development and runtime dependencies, then run the test suite with coverage:
+### Discord
 
-```sh
-python -m pip install -r requirements-dev.txt
-python -m pytest
-```
+Create an application in the [Discord Developer Portal](https://discord.com/developers/applications).
+On its Bot page, select Reset Token to obtain the token.
 
-## Logging
+On Installation, enable Guild Install and select the `bot` and
+`applications.commands` scopes. Grant View Channels, Send Messages, Embed Links,
+and Attach Files. Grant Send Messages in Threads if you will use threads. Open
+the install link to add the bot to your server.
+[Discord's setup guide](https://docs.discord.com/developers/quick-start/getting-started)
+covers installation.
 
-Scooty Scout writes startup events, failures, and admin changes to the terminal and
-`botlog.log`. Command creation entries include the creator's name and Telegram user ID.
-The file rotates at 10 MB and keeps three older copies (`botlog.log.1` through `.3`).
-API keys are not included in log messages.
+Enable Developer Mode in Discord. Copy your user ID for the admin list and your
+server ID for command registration. Follow
+[Discord's ID instructions](https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID)
+to find them.
 
-## Environment File
-
-`.env` contains the API keys needed by the selected backend.
-This file is not included in the project. You will need to make it yourself.
-
-- Telegram: https://core.telegram.org/api/obtaining_api_id
-- CoinMarketCap: https://coinmarketcap.com/api/
-- Etherscan: https://info.etherscan.com/api-keys/
-
-Telegram users can obtain their user ID from this [bot](https://botostore.com/c/getmyid_bot/). This ID is used to designate admins.
-
-### Sample .env
-
-```.env
-TELEGRAM_API_KEY = XXXXXX
-COINMARKETCAP_API_KEY = XXXXXX
-ETHERSCAN_API_KEY = XXXXXX
-
-ADMIN_IDS = [1, 2, 3]
-```
-
-For Discord, use this configuration instead of the Telegram variables:
-
-```.env
+```dotenv
 BOT_BACKEND=discord
 DISCORD_BOT_TOKEN=YOUR_BOT_TOKEN
-DISCORD_ADMIN_IDS=[YOUR_DISCORD_USER_ID]
-DISCORD_GUILD_ID=YOUR_TEST_SERVER_ID
+DISCORD_ADMIN_IDS=[123456789012345678]
+COINMARKETCAP_API_KEY=YOUR_CMC_KEY
+
+# Optional: register commands in this server for testing
+DISCORD_GUILD_ID=987654321098765432
+```
+
+The bot uses `DISCORD_ADMIN_IDS` to identify users who can run admin commands.
+This setting requires a nonempty list of numeric user IDs, separated by commas.
+
+Set the optional `DISCORD_GUILD_ID` to your server ID to register commands there
+for testing. The bot registers commands globally when you leave this setting
+out. Refresh Discord when testing new global commands. See
+[Discord's registration behavior](https://docs.discord.com/developers/interactions/application-commands#making-a-global-command).
+
+### Telegram
+
+Send `/newbot` to [@BotFather](https://t.me/BotFather) and follow its instructions
+to obtain a token. [Telegram's token guide](https://core.telegram.org/bots/tutorial#obtain-your-bot-token)
+explains the process.
+
+You can find your numeric Telegram user ID with a bot such as
+[@getmyid_bot](https://t.me/getmyid_bot). Add this ID to `ADMIN_IDS` to designate
+yourself as an admin. Separate additional admin IDs with commas.
+
+```dotenv
+BOT_BACKEND=telegram
+TELEGRAM_API_KEY=YOUR_BOT_TOKEN
+ADMIN_IDS=[123456789]
 COINMARKETCAP_API_KEY=YOUR_CMC_KEY
 ```
 
-`DISCORD_GUILD_ID` is optional. Setting it registers slash commands in that
-server for testing. Only users in `DISCORD_ADMIN_IDS` can use `/new_crypto`.
+Add the bot to a Telegram group to use group notifications there.
 
-## Cryptocurrency JSON File
+### Ethereum gas (optional)
 
-### cryptos.json format
-```json
-"COIN_SYMBOL": {
-    "INFO": {
-        "contract_id": "0xCONTRACT_ID",
-        "chain": "CHAIN",
-        "website": "WEBSITE"
-    },
-    "cmc_id": "1234",
-    "cmc_name": "COIN NAME"
-}
+The `/ethgas` command requires an
+[Etherscan API key](https://info.etherscan.com/api-keys/) in `.env`. This setting
+works with either platform:
+
+```dotenv
+ETHERSCAN_API_KEY=YOUR_ETHERSCAN_KEY
 ```
 
-The `cryptos.json` file contains entries for all cryptocurrencies known to the bot. Each cryptocurrency is referenced by its coin symbol. The `"INFO"` dictionary contains information that is printed out when a user uses the `/info` command. If adding a cryptocurrency manually, [CoinIdFinder](https://coin-id-finder.vercel.app/) can be used to find its CoinMarketCap ID. The `"contract_id"` and `"chain"` fields within `"INFO"` should be excluded for cryptocurrencies that are standalone (such as Binance Coin or Solana). An example crypto.json file can be found under the name [cryptos_example.json](cryptos_example.json).
+## Running
 
-## Telegram Bot Setup
+Start the bot from the project directory with the virtual environment active:
 
-In order to receive your Telegram API key and to setup the bot itself, you will need to message the [BotFather](https://botostore.com/c/botfather/) and use the `/newbot` command to create a bot. The BotFather can also be used to set a profile picture for the bot along with other things
-
-## Discord Bot Setup
-
-1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications). Copy the bot token into `DISCORD_BOT_TOKEN`.
-2. Install the application in a test server with the `bot` and `applications.commands` scopes and permission to send messages. Enable Developer Mode in Discord to copy your user ID and the test server ID.
-3. Copy `cryptos_example.json` to `cryptos.json`, configure the Discord `.env` values above, install `requirements.txt`, and run `python main.py`.
-4. In that server, try `/coins`. As a configured admin, try `/new_crypto` with a coin symbol or contract address. Review the preview and select **Add coin** or **Cancel**. Confirm that `/coins` lists the new symbol and `cryptos.json` contains it.
-
-# General Commands
-
-## New Cryptocurrency (Admin only)
-
-Enters a new cryptocurrency into the bot. The contract ID this command requires can be found by visiting [CoinMarketCap](https://coinmarketcap.com/) and searching for the cryptocurrency. Once a cryptocurrency has been added to the bot, all commands that interact with cryptocurrencies will work (`/price`, `/price_notify`, etc.).
-
-### Usage
-
-```
-/new_crypto CONTRACT_ID
+```sh
+python main.py
 ```
 
-## Update Cryptocurrency (Admin only)
+On Discord, try `/coins`, `/price symbol:SAND`, and `/info symbol:SAND`.
 
-Updates into for a cryptocurrency that is known to the bot.
+On Telegram, send `/start` to the bot in a private chat, then try `/coins`,
+`/price SAND`, and `/info SAND`. Telegram requires `/start` before you set price
+notifications. Discord registers you when you create a notification.
 
-### Usage
+With the example catalog, `/coins` lists BNB and SAND. `/price` returns the current
+USD price and 24-hour change.
 
-```
-/update_crypto COIN_SYMBOL
-```
+The bot must stay running to receive commands and send notifications.
+Activate the virtual environment when opening a new terminal, and restart the
+bot after configuration changes or updates. Discord registers slash commands
+at startup.
 
-## Price
+## Commands
 
-Gets the price of the specified cryptocurrency and displays 24H price movement. The specified cryptocurrency must be found in `cryptos.json`.
+The [command reference](docs/commands.md) covers syntax, examples, permissions,
+and limits for each command.
 
-### Usage 
+The `/coins`, `/price`, `/info`, and `/ethgas` commands provide coin information
+and Ethereum gas estimates.
 
-```
-/price COIN_SYMBOL
-```
+`/price_notify` sets a price notification. `/check_notifications` lists your
+active notifications, and `/delete_notification` removes one. The bot checks
+prices every 15 minutes and sends notifications by DM. Discord users need to
+allow DMs from server members to receive them.
 
-### Example
-```
-/price BTC
+`/notify_me` and `/dont_notify_me` manage group subscriptions. Subscriptions apply
+to the current Telegram group or Discord channel or thread. Admins use
+`/everyone` to mention subscribers there.
 
-BTC Price: $48,992.267342
-⬇️ -6.23% (24H)
-```
+Admins can add cryptocurrencies with `/new_crypto` and edit saved information
+with `/update_crypto`. They can create image commands with `/new_media_command`
+and video commands with `/new_twitter_video_command`. Anyone can use
+`/list_commands` and run saved media commands.
 
-## Info
+`/wen` sends joke replies. Telegram also has `/start` for price
+notification registration and `/dextools` for the DEXTools homepage.
+Coin-specific `/dextools` support remains unfinished.
 
-Prints all fields under a cryptocurrency's `INFO` field in `cryptos.json`.
+## Backups and updates
 
-### Usage
-```
-/info COIN_SYMBOL
-```
+Stop the bot before backing up or moving its data. Keep `.env` and `cryptos.json`.
 
-### Example
-```
-/info SAND
+For Discord, back up `discord_notifications.db` and `media/discord/`. The media
+directory contains `commands.json` and the saved images and videos.
 
-contract_id: 0x3845badAde8e6dFF049820680d1F14bD3903a5d0
-chain: ETH ERC-20
-website: https://www.sandbox.game/en/
-```
+For Telegram, back up `notifications.db`, `misc_commands/`, and `media/user_media/`.
+Also keep `media/wen_moon.ogg` if you added audio for `/wen moon`.
 
-## Ethereum Gas
+Each platform stores its users, price notifications, and group subscriptions in
+its own database, which the bot creates at startup. Custom commands also stay
+separate for each platform. Git excludes these data files, `.env`, and
+`cryptos.json`, so keep them when updating or redeploying.
 
-Gets the current gas price for Ethereum in gwei and shows the cost of a Uniswap transfer in USD.
+To update, stop the bot, back up its data, update your checkout, activate the
+virtual environment, reinstall `requirements.txt`, and run `python main.py`.
 
-### Usage
+The bot writes logs to the terminal and `botlog.log`. It rotates the file at
+10 MB and keeps three backups. Admin log entries include the actor's name and
+platform user ID.
 
-```
-/ethgas
-```
+## Troubleshooting
 
-### Example
-```
-/ethgas
+Read the terminal output and `botlog.log` for the error.
 
-Uniswap Gas (152,000 gas limit)
-Safe: 109 gwei ($68.0022)
-Proposed: 110 gwei ($68.6261)
-Fast: 112 gwei ($69.8738)
-```
+If startup fails, run from the project directory. Check `.env`, the selected
+platform's admin ID list, and `cryptos.json`.
 
-# Price Notification Commands
+If PowerShell blocks activation, run the install and startup commands with
+`.\.venv\Scripts\python.exe`.
+[Python's venv guide](https://docs.python.org/3.14/library/venv.html#how-venvs-work)
+covers direct invocation.
 
-## Set Price Notification
+If Discord commands are missing, restart the bot. Check the server ID,
+installation scopes, and channel permissions. Refresh Discord when testing new
+global commands.
 
-Sets a price notification for a specified cryptocurrency. The provided price can be above or below the current price of a cryptocurrency. Users can only have one price notification set per cryptocurrency. If a user sets a price notification for a cryptocurrency that they already have a notification for, the old notification will be overridden. Prices are checked once every 15 minutes. The specified cryptocurrency must be found in `cryptos.json`.
+If the bot rejects an admin command, check your numeric user ID in the selected
+platform's admin list and restart the bot.
 
-The data for price_notifications is stored in a SQLite database named `notifications.db`. This file is created on bot startup if it does not exist already.
+If price or coin lookups fail, check `COINMARKETCAP_API_KEY` and network access.
 
-### Usage
+If price notifications fail to arrive, keep the bot running through a scheduled
+check. Allow Discord DMs or send Telegram `/start` privately.
 
-```
-/price_notify COIN_SYMBOL NOTIFICATION_PRICE
-```
+If Discord fails to register a saved media command, restart the bot to retry.
+The bot keeps the saved command and media.
 
-## Delete Price Notification
+The [command reference](docs/commands.md) covers video requirements and group
+notification scope.
 
-Deletes an active notification that the user has set.
+## Development
 
-### Usage
+In the active virtual environment, install development dependencies and run:
 
-```
-/delete_notification COIN_SYMBOL
-```
-
-## Check Price Notifications
-
-Prints out all active notifications the user has set.
-
-### Usage
-
-```
-/check_notifications
-```
-
-# Misc Commands
-
-## New Media Command (Admin Only)
-
-Creates a new command with a specified name. This command requires a user to attach an image that will be used for the new command.
-
-## Usage
-```
-/new_media_command COMMAND_NAME
+```sh
+python -m pip install -r requirements-dev.txt
+python -m black .
+python -m pytest
 ```
 
-### Example
+Black uses a 120-character line length from `pyproject.toml`. Use
+`python -m black --check .` to check formatting. Pytest reports coverage.
+Tests mock network requests and platform interactions. Use a test server or group
+to check the command examples against live services.
 
-<img src="./example_images/new_media_command.png" alt="new_media_command_example" width="400">
+## License
 
-## List Commands
-
-Gives a list of available commands in a specified file. Useful if users make a lot of commands using `/new_media_command`.
-
-### Usage
-
-```
-/list_commands FILE_NAME
-```
-
-## wen
-
-Joke command. Accepted arguments are "moon", "lambo", or "aston".
-
-### Usage
-
-```
-/wen THING
-```
+[MIT](LICENSE).
