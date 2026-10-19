@@ -23,6 +23,7 @@ from bot_application import (
 from bot_utilities import log_to_disk
 from command_context import CommandContext
 from ethereum_gas import GasPriceError
+from media_commands import MediaCommand, MediaCommandError
 from price_alerts import PriceAlertError
 
 logger = logging.getLogger("scooty_scout")
@@ -155,7 +156,11 @@ class DiscordAdapter(discord.Client):
         self.admin_ids = admin_ids
         self.guild_id = guild_id
         self.tree = app_commands.CommandTree(self)
+        self._media_command_lock = asyncio.Lock()
         self._register_commands()
+        if application.media_commands is not None:
+            for command in application.media_commands.commands():
+                self._register_media_command(command)
 
     def _register_commands(self) -> None:
         @self.tree.command(name="coins", description="List coins known to the bot")
@@ -352,13 +357,92 @@ class DiscordAdapter(discord.Client):
                     ephemeral=True,
                 )
 
-    async def setup_hook(self) -> None:
+        @self.tree.command(name="new_media_command", description="Create a slash command that sends an uploaded image")
+        @app_commands.describe(
+            name="New command name, such as party_frog",
+            image="PNG, JPEG, GIF, or WebP image, up to 8 MiB",
+            group="Command group for /list_commands (default: user_commands)",
+        )
+        async def new_media_command(
+            interaction: discord.Interaction, name: str, image: discord.Attachment, group: str = "user_commands"
+        ) -> None:
+            if interaction.user.id not in self.admin_ids:
+                await interaction.response.send_message("Only admins can create media commands.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            async with self._media_command_lock:
+                try:
+                    command = self.bot_application.prepare_media_command(name, image.filename, group, image.size)
+                    if self.tree.get_command(command.name) is not None:
+                        raise MediaCommandError(f"Cannot create /{command.name}. Command already exists.")
+                    if len(self.tree.get_commands()) >= 100:
+                        raise MediaCommandError("The bot has reached Discord's limit of 100 slash commands.")
+                    if image.content_type and not image.content_type.startswith("image/"):
+                        raise MediaCommandError("Attach a PNG, JPEG, GIF, or WebP image.")
+                    content = await image.read()
+                    await asyncio.to_thread(self.bot_application.add_media_command, command, content)
+                except MediaCommandError as error:
+                    await interaction.followup.send(str(error), ephemeral=True)
+                    return
+                except OSError, discord.HTTPException:
+                    logger.exception("Discord /new_media_command upload or save failed")
+                    await interaction.followup.send("Could not save the image. Try again later.", ephemeral=True)
+                    return
+                self._register_media_command(command)
+                log_to_disk(f"Created /{command.name}", "/new_media_command", context_from_interaction(interaction))
+                try:
+                    await self._sync_commands()
+                except discord.HTTPException:
+                    logger.exception("Discord media command sync failed")
+                    response = (
+                        f"Saved /{command.name}, but Discord could not refresh its commands. Restart the bot to retry."
+                    )
+                else:
+                    response = f"Created /{command.name}. Use it to send the saved image."
+                await interaction.followup.send(response, ephemeral=True)
+
+        @self.tree.command(name="list_commands", description="List saved custom media commands, optionally by group")
+        @app_commands.describe(group="Show only this command group; omit to list all groups")
+        async def list_commands(interaction: discord.Interaction, group: str | None = None) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                response = self.bot_application.list_commands(context_from_interaction(interaction), group)
+            except MediaCommandError as error:
+                response = str(error)
+            await send_followup_text(
+                interaction, response, filename="commands.txt", attachment_message="Custom commands are attached."
+            )
+
+    def _register_media_command(self, command: MediaCommand) -> None:
+        if self.tree.get_command(command.name) is not None:
+            raise MediaCommandError(f"Saved media command /{command.name} conflicts with a built-in command.")
+        directory = self.bot_application.media_commands.directory
+
+        async def send_media(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(thinking=True)
+            try:
+                with closing(discord.File(directory / command.filename, filename=command.filename)) as attachment:
+                    await interaction.followup.send(file=attachment)
+            except OSError, discord.HTTPException:
+                logger.exception("Discord media command /%s failed", command.name)
+                await interaction.followup.send("Could not send the saved image. Ask an admin to check its file.")
+
+        self.tree.add_command(
+            app_commands.Command(
+                name=command.name, description=f"Send the saved image for {command.name}", callback=send_media
+            )
+        )
+
+    async def _sync_commands(self) -> None:
         if self.guild_id is None:
             await self.tree.sync()
         else:
             guild = discord.Object(id=self.guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
+
+    async def setup_hook(self) -> None:
+        await self._sync_commands()
         if self.bot_application.price_alerts is not None:
             self.check_price_notifications.start()
 

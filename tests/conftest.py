@@ -11,6 +11,7 @@ from backend_config import Backend
 from bot_application import BotApplication
 from command_context import CommandContext
 from ethereum_gas import GasEstimate, GasPrices
+from media_commands import MediaCommands
 
 
 @pytest.fixture
@@ -55,6 +56,12 @@ def application(tmp_path, market_lookup):
         "cmc-key",
         crypto_path=tmp_path / "cryptos.json",
     )
+
+
+@pytest.fixture
+def media_application(application, tmp_path):
+    application.media_commands = MediaCommands(tmp_path / "discord_media")
+    return application
 
 
 @pytest.fixture

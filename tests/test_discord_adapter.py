@@ -59,6 +59,13 @@ def triggered_alert(alert_application, discord_context, market_lookup, market_qu
 
 
 @pytest.fixture
+def image_upload():
+    return SimpleNamespace(
+        filename="upload.PNG", content_type="image/png", size=5, read=AsyncMock(return_value=b"image")
+    )
+
+
+@pytest.fixture
 def new_coin():
     return CoinCandidate("NEW", "New Coin", "43", "https://example.com", None, None)
 
@@ -366,10 +373,14 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
 
 @pytest.mark.parametrize(
     ("command_name", "arguments"),
-    [("new_crypto", ("NEW",)), ("update_crypto", ("TST", "website", "https://example.com"))],
-    ids=["add-coin", "update-coin"],
+    [
+        ("new_crypto", ("NEW",)),
+        ("update_crypto", ("TST", "website", "https://example.com")),
+        ("new_media_command", ("frog", None)),
+    ],
+    ids=["add-coin", "update-coin", "create-media-command"],
 )
-def test_coin_management_requires_admin(application, interaction, invoke_command, command_name, arguments):
+def test_admin_commands_reject_non_admins(application, interaction, invoke_command, command_name, arguments):
     invoke_command(command_name, *arguments)
 
     reply = interaction.response.send_message.call_args
@@ -377,6 +388,110 @@ def test_coin_management_requires_admin(application, interaction, invoke_command
     assert reply.kwargs["ephemeral"] is True
     assert "NEW" not in application.cryptos
     assert not application.crypto_path.exists()
+
+
+def test_new_media_command_registers_and_sends_image(
+    adapter, media_application, interaction, image_upload, invoke_command
+):
+    interaction.user.id = 7
+    adapter.tree.sync = AsyncMock()
+
+    invoke_command("new_media_command", " FROG ", image_upload, "memes")
+
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    interaction.followup.send.assert_awaited_once_with("Created /frog. Use it to send the saved image.", ephemeral=True)
+    adapter.tree.sync.assert_awaited_once_with(guild=discord.Object(id=123))
+    assert adapter.tree.get_command("frog").parameters == []
+
+    interaction.user.id = 8
+    invoke_command("frog")
+
+    attachment = interaction.followup.send.call_args.kwargs["file"]
+    assert attachment.filename == "frog.png"
+    assert attachment.fp.closed
+
+
+def test_saved_media_commands_are_registered_on_restart(media_application, interaction, run_async):
+    command = media_application.prepare_media_command("frog", "frog.png", "memes", 5)
+    media_application.add_media_command(command, b"image")
+    client = DiscordAdapter(media_application, {7}, None)
+    client.tree.sync = AsyncMock()
+    try:
+        run_async(client.setup_hook())
+        assert client.tree.get_command("frog") is not None
+        client.tree.sync.assert_awaited_once_with()
+        (media_application.media_commands.directory / command.filename).unlink()
+
+        run_async(client.tree.get_command("frog").callback(interaction))
+
+        interaction.followup.send.assert_awaited_once_with(
+            "Could not send the saved image. Ask an admin to check its file."
+        )
+    finally:
+        run_async(client.close())
+
+
+@pytest.mark.parametrize("name", ["coins", "frog"], ids=["built-in-command", "saved-command"])
+def test_media_command_rejects_duplicate_names(
+    adapter, media_application, interaction, image_upload, invoke_command, name
+):
+    saved = media_application.prepare_media_command("frog", "frog.png", "memes", 5)
+    media_application.add_media_command(saved, b"image")
+    interaction.user.id = 7
+    adapter.tree.sync = AsyncMock()
+
+    invoke_command("new_media_command", name, image_upload)
+
+    image_upload.read.assert_not_awaited()
+    adapter.tree.sync.assert_not_awaited()
+    assert "already exists" in interaction.followup.send.call_args.args[0]
+
+
+@pytest.mark.parametrize("failure", ["download", "save"])
+def test_media_upload_failure_does_not_register_command(
+    adapter, media_application, interaction, image_upload, invoke_command, failure
+):
+    interaction.user.id = 7
+    adapter.tree.sync = AsyncMock()
+    if failure == "download":
+        image_upload.read.side_effect = discord.HTTPException(
+            SimpleNamespace(status=404, reason="Not Found"), "Missing"
+        )
+    else:
+        media_application.add_media_command = Mock(side_effect=OSError("Disk unavailable"))
+
+    invoke_command("new_media_command", "frog", image_upload)
+
+    interaction.followup.send.assert_awaited_once_with("Could not save the image. Try again later.", ephemeral=True)
+    assert adapter.tree.get_command("frog") is None
+    assert media_application.media_commands.commands() == ()
+    adapter.tree.sync.assert_not_awaited()
+
+
+def test_media_sync_failure_keeps_saved_command_for_restart(
+    adapter, media_application, interaction, image_upload, invoke_command
+):
+    interaction.user.id = 7
+    adapter.tree.sync = AsyncMock(
+        side_effect=discord.HTTPException(SimpleNamespace(status=503, reason="Unavailable"), "Try later")
+    )
+
+    invoke_command("new_media_command", "frog", image_upload)
+
+    assert adapter.tree.get_command("frog") is not None
+    assert media_application.media_commands.commands()[0].name == "frog"
+    assert "Saved /frog" in interaction.followup.send.call_args.args[0]
+    assert "Restart the bot" in interaction.followup.send.call_args.args[0]
+
+
+def test_list_commands_uses_shared_listing(application, interaction, discord_context, invoke_command):
+    application.list_commands = Mock(return_value="Custom commands in memes:\n/frog")
+
+    invoke_command("list_commands", "memes")
+
+    application.list_commands.assert_called_once_with(discord_context, "memes")
+    interaction.response.defer.assert_awaited_once_with(thinking=True)
+    interaction.followup.send.assert_awaited_once_with("Custom commands in memes:\n/frog", ephemeral=False)
 
 
 def test_new_crypto_confirmation_calls_shared_save(application, interaction, new_coin, invoke_command, run_async):

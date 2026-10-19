@@ -51,5 +51,6 @@ def run() -> None:
         crypto_path,
         notification_path="discord_notifications.db",
         etherscan_api_key=os.getenv("ETHERSCAN_API_KEY"),
+        media_path="media/discord",
     )
     DiscordAdapter(application, admin_ids, guild_id).run(token)

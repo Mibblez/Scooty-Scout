@@ -13,6 +13,7 @@ from typing import Any
 from bot_utilities import cmc_id_map, get_coin_data, get_coin_info, unknown_coin, usage_error
 from command_context import CommandContext
 from ethereum_gas import GasPrices, get_ethereum_gas
+from media_commands import MediaCommand, MediaCommandError, MediaCommands
 from price_alerts import PriceAlerts, PriceAlertError
 from wen import WenReply, get_wen_reply
 
@@ -108,6 +109,7 @@ class BotApplication:
         crypto_path: str | Path = "cryptos.json",
         notification_path: str | Path | None = None,
         etherscan_api_key: str | None = None,
+        media_path: str | Path | None = None,
     ) -> None:
         self.cryptos = dict(cryptos) if not isinstance(cryptos, dict) else cryptos
         self.cmc_api_key = cmc_api_key
@@ -115,10 +117,26 @@ class BotApplication:
         self.crypto_path = Path(crypto_path)
         self._catalog_lock = Lock()
         self.price_alerts = PriceAlerts(self.cryptos, cmc_api_key, notification_path) if notification_path else None
+        self.media_commands = MediaCommands(media_path) if media_path is not None else None
 
     def coins(self, _context: CommandContext) -> str:
         """List known coins without depending on a platform's message API."""
         return "Known coins:\n" + " ; ".join(self.cryptos)
+
+    def prepare_media_command(self, name: str, filename: str, group: str, size: int) -> MediaCommand:
+        if self.media_commands is None:
+            raise MediaCommandError("Custom media commands are not configured.")
+        return self.media_commands.prepare(name, filename, group, size)
+
+    def add_media_command(self, command: MediaCommand, content: bytes) -> None:
+        if self.media_commands is None:
+            raise MediaCommandError("Custom media commands are not configured.")
+        self.media_commands.add(command, content)
+
+    def list_commands(self, _context: CommandContext, group: str | None = None) -> str:
+        if self.media_commands is None:
+            raise MediaCommandError("Custom media commands are not configured.")
+        return self.media_commands.list_commands(group)
 
     def wen(self, _context: CommandContext, thing: str) -> WenReply | None:
         """Choose a joke response and optional audio for any platform."""
