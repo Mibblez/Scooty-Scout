@@ -13,6 +13,7 @@ from typing import Any
 from bot_utilities import cmc_id_map, get_coin_data, get_coin_info, unknown_coin, usage_error
 from command_context import CommandContext
 from ethereum_gas import GasPrices, get_ethereum_gas
+from group_notifications import GroupNotificationError, GroupNotifications
 from media_commands import MediaCommand, MediaCommandError, MediaCommands
 from price_alerts import PriceAlerts, PriceAlertError
 from wen import WenReply, get_wen_reply
@@ -117,6 +118,7 @@ class BotApplication:
         self.crypto_path = Path(crypto_path)
         self._catalog_lock = Lock()
         self.price_alerts = PriceAlerts(self.cryptos, cmc_api_key, notification_path) if notification_path else None
+        self.group_notifications = GroupNotifications(notification_path) if notification_path else None
         self.media_commands = MediaCommands(media_path) if media_path is not None else None
 
     def coins(self, _context: CommandContext) -> str:
@@ -222,6 +224,18 @@ class BotApplication:
         if self.price_alerts is None:
             raise PriceAlertError("Price notifications are not configured.")
         return self.price_alerts.delete_notification(context, symbol)
+
+    def notify_me(self, context: CommandContext) -> str:
+        """Opt the caller into group notifications for this conversation."""
+        if self.group_notifications is None:
+            raise GroupNotificationError("Group notifications are not configured.")
+        return self.group_notifications.notify_me(context)
+
+    def dont_notify_me(self, context: CommandContext) -> str:
+        """Opt the caller out of group notifications for this conversation."""
+        if self.group_notifications is None:
+            raise GroupNotificationError("Group notifications are not configured.")
+        return self.group_notifications.dont_notify_me(context)
 
     def prepare_new_coin(self, identifier: str) -> CoinCandidate:
         """Look up one coin in CoinMarketCap and prepare it for confirmation."""

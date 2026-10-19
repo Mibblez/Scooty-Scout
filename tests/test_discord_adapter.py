@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -12,6 +13,7 @@ import bot_application
 from bot_application import CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError, CoinUpdateError
 from discord_adapter import DiscordAdapter
 from discord_bot import _admin_ids
+from group_notifications import GroupNotificationError
 from wen import WenReply
 
 
@@ -20,6 +22,7 @@ def interaction(discord_context):
     return SimpleNamespace(
         user=SimpleNamespace(id=int(discord_context.user_id), display_name=discord_context.display_name),
         channel_id=123,
+        guild_id=456,
         response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock(), edit_message=AsyncMock()),
         followup=SimpleNamespace(send=AsyncMock()),
         edit_original_response=AsyncMock(),
@@ -206,6 +209,55 @@ def test_delete_notification_replies_privately(application, interaction, discord
     application.delete_notification.assert_called_once_with(discord_context, "tst")
     interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
     interaction.followup.send.assert_awaited_once_with(response, ephemeral=True)
+
+
+@pytest.mark.parametrize("command_name", ["notify_me", "dont_notify_me"])
+def test_group_preference_commands_delegate_and_reply_privately(
+    adapter, application, interaction, discord_context, invoke_command, command_name
+):
+    update = Mock(return_value="Preference saved")
+    setattr(application, command_name, update)
+
+    invoke_command(command_name)
+
+    assert adapter.tree.get_command(command_name).guild_only is True
+    update.assert_called_once_with(discord_context)
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    interaction.followup.send.assert_awaited_once_with("Preference saved", ephemeral=True)
+
+
+@pytest.mark.parametrize("command_name", ["notify_me", "dont_notify_me"])
+def test_group_preference_commands_reject_direct_messages(application, interaction, invoke_command, command_name):
+    interaction.guild_id = None
+    update = Mock()
+    setattr(application, command_name, update)
+
+    invoke_command(command_name)
+
+    update.assert_not_called()
+    interaction.response.send_message.assert_awaited_once_with(
+        "Use this command in a server channel or thread.", ephemeral=True
+    )
+    interaction.response.defer.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (GroupNotificationError("Group notifications are not configured."), "Group notifications are not configured."),
+        (
+            sqlite3.OperationalError("Disk unavailable"),
+            "Could not save your group notification preference. Try again later.",
+        ),
+    ],
+    ids=["not-configured", "database-unavailable"],
+)
+def test_group_preference_failures_reply_privately(application, interaction, invoke_command, error, expected):
+    application.notify_me = Mock(side_effect=error)
+
+    invoke_command("notify_me")
+
+    interaction.followup.send.assert_awaited_once_with(expected, ephemeral=True)
 
 
 def test_checker_skips_alert_canceled_during_user_lookup(

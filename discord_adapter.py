@@ -3,6 +3,8 @@
 import asyncio
 import io
 import logging
+import sqlite3
+from collections.abc import Callable
 from contextlib import closing, suppress
 from typing import Literal
 
@@ -23,6 +25,7 @@ from bot_application import (
 from bot_utilities import log_to_disk
 from command_context import CommandContext
 from ethereum_gas import GasPriceError
+from group_notifications import GroupNotificationError
 from media_commands import MediaCommand, MediaCommandError
 from price_alerts import PriceAlertError
 
@@ -309,6 +312,16 @@ class DiscordAdapter(discord.Client):
                 ephemeral=True,
             )
 
+        @self.tree.command(name="notify_me", description="Opt into this channel's /everyone notifications")
+        @app_commands.guild_only()
+        async def notify_me(interaction: discord.Interaction) -> None:
+            await self._update_group_subscription(interaction, self.bot_application.notify_me)
+
+        @self.tree.command(name="dont_notify_me", description="Opt out of this channel's /everyone notifications")
+        @app_commands.guild_only()
+        async def dont_notify_me(interaction: discord.Interaction) -> None:
+            await self._update_group_subscription(interaction, self.bot_application.dont_notify_me)
+
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")
         async def new_crypto(interaction: discord.Interaction, identifier: str) -> None:
@@ -412,6 +425,22 @@ class DiscordAdapter(discord.Client):
             await send_followup_text(
                 interaction, response, filename="commands.txt", attachment_message="Custom commands are attached."
             )
+
+    async def _update_group_subscription(
+        self, interaction: discord.Interaction, update: Callable[[CommandContext], str]
+    ) -> None:
+        if interaction.guild_id is None or interaction.channel_id is None:
+            await interaction.response.send_message("Use this command in a server channel or thread.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            response = await asyncio.to_thread(update, context_from_interaction(interaction))
+        except GroupNotificationError as error:
+            response = str(error)
+        except sqlite3.Error:
+            logger.exception("Discord group notification preference update failed")
+            response = "Could not save your group notification preference. Try again later."
+        await interaction.followup.send(response, ephemeral=True)
 
     def _register_media_command(self, command: MediaCommand) -> None:
         if self.tree.get_command(command.name) is not None:
