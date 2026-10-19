@@ -34,6 +34,10 @@ class MediaCommand:
     group: str
     filename: str
 
+    @property
+    def media_type(self) -> str:
+        return "video" if self.filename.endswith(".mp4") else "image"
+
 
 class MediaCommands:
     def __init__(self, directory: str | Path) -> None:
@@ -47,7 +51,7 @@ class MediaCommands:
                 if not isinstance(records, dict):
                     raise ValueError("Expected a command catalog.")
                 for name, record in records.items():
-                    command = self.prepare(name, record["filename"], record["group"], 1)
+                    command = self.prepare(name, record["filename"], record["group"])
                     if name != command.name or record["filename"] != command.filename:
                         raise ValueError("Invalid saved command name or filename.")
                     self._commands[name] = command
@@ -58,14 +62,14 @@ class MediaCommands:
         with self._lock:
             return tuple(sorted(self._commands.values(), key=lambda command: command.name))
 
-    def prepare(self, name: str, filename: str, group: str, size: int) -> MediaCommand:
+    def prepare(self, name: str, filename: str, group: str, size: int | None = None) -> MediaCommand:
         name = _label(name, "command name")
         group = _label(group, "group name")
         extension = Path(filename).suffix.lower()
-        if extension not in IMAGE_EXTENSIONS:
-            raise MediaCommandError("Attach a PNG, JPEG, GIF, or WebP image.")
-        if not 0 < size <= MAX_MEDIA_BYTES:
-            raise MediaCommandError("Images must be non-empty and at most 8 MiB.")
+        if extension not in IMAGE_EXTENSIONS | {".mp4"}:
+            raise MediaCommandError("Use a PNG, JPEG, GIF, or WebP image, or an MP4 video.")
+        if size is not None and not 0 < size <= MAX_MEDIA_BYTES:
+            raise MediaCommandError("Media must be non-empty and at most 8 MiB.")
         if name in self._commands:
             raise MediaCommandError(f"Cannot create /{name}. Command already exists.")
         return MediaCommand(name, group, f"{name}{extension}")

@@ -4,7 +4,7 @@ import asyncio
 import io
 import logging
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import closing, suppress
 from typing import Literal
 
@@ -75,6 +75,24 @@ def coin_info_embed(info: CoinInfo) -> discord.Embed | None:
     if any(len(field.name) > 256 or len(field.value) > 1024 for field in embed.fields):
         return None
     return embed
+
+
+def group_notification_batches(message: str, user_ids: tuple[str, ...]) -> Iterator[tuple[str, list[discord.Object]]]:
+    """Keep each notification within Discord's text and mention limits."""
+    text = message
+    users = []
+    for user_id in user_ids:
+        mention = f"<@{user_id}>"
+        user = discord.Object(id=int(user_id))
+        separator = "\n" if not users else " "
+        if len(text) + len(separator) + len(mention) > 2000 or len(users) == 100:
+            yield text, users
+            text, users = mention, [user]
+        else:
+            text += separator + mention
+            users.append(user)
+    if users:
+        yield text, users
 
 
 class ConfirmNewCoin(discord.ui.View):
@@ -322,6 +340,59 @@ class DiscordAdapter(discord.Client):
         async def dont_notify_me(interaction: discord.Interaction) -> None:
             await self._update_group_subscription(interaction, self.bot_application.dont_notify_me)
 
+        @self.tree.command(name="everyone", description="Notify this channel's subscribed users (admin only)")
+        @app_commands.guild_only()
+        @app_commands.describe(message="Message to send with the subscriber mentions")
+        async def everyone(interaction: discord.Interaction, message: app_commands.Range[str, 1, 2000]) -> None:
+            if interaction.user.id not in self.admin_ids:
+                await interaction.response.send_message("Only admins can send group notifications.", ephemeral=True)
+                return
+            if interaction.guild_id is None or interaction.channel is None:
+                await interaction.response.send_message(
+                    "Use this command in a server channel or thread.", ephemeral=True
+                )
+                return
+            message = message.strip()
+            if not message or len(message) > 2000:
+                await interaction.response.send_message("Provide a message of 1–2,000 characters.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                subscribers = await asyncio.to_thread(
+                    self.bot_application.group_subscribers, context_from_interaction(interaction)
+                )
+            except GroupNotificationError as error:
+                response = str(error)
+            except sqlite3.Error:
+                logger.exception("Discord /everyone subscriber lookup failed")
+                response = "Could not load group notification subscribers. Try again later."
+            else:
+                if not subscribers:
+                    await interaction.followup.send(
+                        "No one has subscribed here yet. Use /notify_me to opt in.", ephemeral=True
+                    )
+                    return
+                sent = 0
+                try:
+                    for text, users in group_notification_batches(message, subscribers):
+                        await interaction.channel.send(
+                            text,
+                            allowed_mentions=discord.AllowedMentions(
+                                everyone=False, roles=False, users=users, replied_user=False
+                            ),
+                        )
+                        sent += len(users)
+                except discord.HTTPException:
+                    logger.exception("Discord /everyone delivery failed")
+                    response = (
+                        f"Could not send all group notifications; {sent} subscriber mentions were sent. "
+                        "Check the bot's permission to send messages here."
+                    )
+                else:
+                    response = f"Mentioned {sent} subscribed users here."
+                    log_to_disk(response, "/everyone", context_from_interaction(interaction))
+            await interaction.followup.send(response, ephemeral=True)
+
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")
         async def new_crypto(interaction: discord.Interaction, identifier: str) -> None:
@@ -386,10 +457,7 @@ class DiscordAdapter(discord.Client):
             async with self._media_command_lock:
                 try:
                     command = self.bot_application.prepare_media_command(name, image.filename, group, image.size)
-                    if self.tree.get_command(command.name) is not None:
-                        raise MediaCommandError(f"Cannot create /{command.name}. Command already exists.")
-                    if len(self.tree.get_commands()) >= 100:
-                        raise MediaCommandError("The bot has reached Discord's limit of 100 slash commands.")
+                    self._check_media_command(command)
                     if image.content_type and not image.content_type.startswith("image/"):
                         raise MediaCommandError("Attach a PNG, JPEG, GIF, or WebP image.")
                     content = await image.read()
@@ -401,18 +469,36 @@ class DiscordAdapter(discord.Client):
                     logger.exception("Discord /new_media_command upload or save failed")
                     await interaction.followup.send("Could not save the image. Try again later.", ephemeral=True)
                     return
-                self._register_media_command(command)
-                log_to_disk(f"Created /{command.name}", "/new_media_command", context_from_interaction(interaction))
+                await self._publish_media_command(interaction, command, "/new_media_command")
+
+        @self.tree.command(
+            name="new_twitter_video_command", description="Create a slash command from a Twitter/X video"
+        )
+        @app_commands.describe(
+            name="New command name, such as party_video",
+            url="Public Twitter/X post or copied video address",
+            group="Command group for /list_commands (default: user_commands)",
+        )
+        async def new_twitter_video_command(
+            interaction: discord.Interaction, name: str, url: str, group: str = "user_commands"
+        ) -> None:
+            if interaction.user.id not in self.admin_ids:
+                await interaction.response.send_message("Only admins can create media commands.", ephemeral=True)
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            async with self._media_command_lock:
                 try:
-                    await self._sync_commands()
-                except discord.HTTPException:
-                    logger.exception("Discord media command sync failed")
-                    response = (
-                        f"Saved /{command.name}, but Discord could not refresh its commands. Restart the bot to retry."
-                    )
-                else:
-                    response = f"Created /{command.name}. Use it to send the saved image."
-                await interaction.followup.send(response, ephemeral=True)
+                    command = self.bot_application.prepare_twitter_video_command(name, group)
+                    self._check_media_command(command)
+                    await asyncio.to_thread(self.bot_application.add_twitter_video_command, command, url)
+                except MediaCommandError as error:
+                    await interaction.followup.send(str(error), ephemeral=True)
+                    return
+                except OSError:
+                    logger.exception("Discord /new_twitter_video_command save failed")
+                    await interaction.followup.send("Could not save the video. Try again later.", ephemeral=True)
+                    return
+                await self._publish_media_command(interaction, command, "/new_twitter_video_command")
 
         @self.tree.command(name="list_commands", description="List saved custom media commands, optionally by group")
         @app_commands.describe(group="Show only this command group; omit to list all groups")
@@ -442,6 +528,26 @@ class DiscordAdapter(discord.Client):
             response = "Could not save your group notification preference. Try again later."
         await interaction.followup.send(response, ephemeral=True)
 
+    def _check_media_command(self, command: MediaCommand) -> None:
+        if self.tree.get_command(command.name) is not None:
+            raise MediaCommandError(f"Cannot create /{command.name}. Command already exists.")
+        if len(self.tree.get_commands()) >= 100:
+            raise MediaCommandError("The bot has reached Discord's limit of 100 slash commands.")
+
+    async def _publish_media_command(
+        self, interaction: discord.Interaction, command: MediaCommand, source_command: str
+    ) -> None:
+        self._register_media_command(command)
+        log_to_disk(f"Created /{command.name}", source_command, context_from_interaction(interaction))
+        try:
+            await self._sync_commands()
+        except discord.HTTPException:
+            logger.exception("Discord media command sync failed")
+            response = f"Saved /{command.name}, but Discord could not refresh its commands. Restart the bot to retry."
+        else:
+            response = f"Created /{command.name}. Use it to send the saved {command.media_type}."
+        await interaction.followup.send(response, ephemeral=True)
+
     def _register_media_command(self, command: MediaCommand) -> None:
         if self.tree.get_command(command.name) is not None:
             raise MediaCommandError(f"Saved media command /{command.name} conflicts with a built-in command.")
@@ -454,11 +560,15 @@ class DiscordAdapter(discord.Client):
                     await interaction.followup.send(file=attachment)
             except OSError, discord.HTTPException:
                 logger.exception("Discord media command /%s failed", command.name)
-                await interaction.followup.send("Could not send the saved image. Ask an admin to check its file.")
+                await interaction.followup.send(
+                    f"Could not send the saved {command.media_type}. Ask an admin to check its file."
+                )
 
         self.tree.add_command(
             app_commands.Command(
-                name=command.name, description=f"Send the saved image for {command.name}", callback=send_media
+                name=command.name,
+                description=f"Send the saved {command.media_type} for {command.name}",
+                callback=send_media,
             )
         )
 

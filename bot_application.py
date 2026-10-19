@@ -14,8 +14,9 @@ from bot_utilities import cmc_id_map, get_coin_data, get_coin_info, unknown_coin
 from command_context import CommandContext
 from ethereum_gas import GasPrices, get_ethereum_gas
 from group_notifications import GroupNotificationError, GroupNotifications
-from media_commands import MediaCommand, MediaCommandError, MediaCommands
+from media_commands import IMAGE_EXTENSIONS, MediaCommand, MediaCommandError, MediaCommands
 from price_alerts import PriceAlerts, PriceAlertError
+from twitter_videos import download_twitter_video
 from wen import WenReply, get_wen_reply
 
 logger = logging.getLogger("scooty_scout")
@@ -128,7 +129,17 @@ class BotApplication:
     def prepare_media_command(self, name: str, filename: str, group: str, size: int) -> MediaCommand:
         if self.media_commands is None:
             raise MediaCommandError("Custom media commands are not configured.")
+        if Path(filename).suffix.lower() not in IMAGE_EXTENSIONS:
+            raise MediaCommandError("Attach a PNG, JPEG, GIF, or WebP image.")
         return self.media_commands.prepare(name, filename, group, size)
+
+    def prepare_twitter_video_command(self, name: str, group: str = "user_commands") -> MediaCommand:
+        if self.media_commands is None:
+            raise MediaCommandError("Custom media commands are not configured.")
+        return self.media_commands.prepare(name, "video.mp4", group)
+
+    def add_twitter_video_command(self, command: MediaCommand, url: str) -> None:
+        self.add_media_command(command, download_twitter_video(url))
 
     def add_media_command(self, command: MediaCommand, content: bytes) -> None:
         if self.media_commands is None:
@@ -236,6 +247,12 @@ class BotApplication:
         if self.group_notifications is None:
             raise GroupNotificationError("Group notifications are not configured.")
         return self.group_notifications.dont_notify_me(context)
+
+    def group_subscribers(self, context: CommandContext) -> tuple[str, ...]:
+        """Return the users who opted into notifications in this conversation."""
+        if self.group_notifications is None:
+            raise GroupNotificationError("Group notifications are not configured.")
+        return self.group_notifications.subscribers(context.conversation_id)
 
     def prepare_new_coin(self, identifier: str) -> CoinCandidate:
         """Look up one coin in CoinMarketCap and prepare it for confirmation."""

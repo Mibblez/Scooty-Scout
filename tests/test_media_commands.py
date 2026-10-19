@@ -28,6 +28,19 @@ def test_media_commands_persist_and_list_by_group(media_application, discord_con
         reopened.list_commands(discord_context, "missing")
 
 
+def test_twitter_video_uses_the_shared_media_catalog(media_application, discord_context, video_download):
+    command = media_application.prepare_twitter_video_command(" CLIP ", " Memes ")
+
+    media_application.add_twitter_video_command(command, "https://x.com/ada/status/123")
+
+    video_download.assert_called_once_with("https://x.com/ada/status/123")
+    reopened = BotApplication({}, media_path=media_application.media_commands.directory)
+    assert reopened.media_commands.commands() == (command,)
+    assert command.media_type == "video"
+    assert (reopened.media_commands.directory / "clip.mp4").read_bytes() == b"video"
+    assert reopened.list_commands(discord_context, "memes") == "Custom commands in memes:\n/clip"
+
+
 @pytest.mark.parametrize(
     ("name", "filename", "group", "size"),
     [
@@ -35,10 +48,19 @@ def test_media_commands_persist_and_list_by_group(media_application, discord_con
         ("x" * 33, "frog.png", "memes", 5),
         ("frog", "frog.png", "../escape", 5),
         ("frog", "script.py", "memes", 5),
+        ("frog", "video.mp4", "memes", 5),
         ("frog", "frog.png", "memes", 0),
         ("frog", "frog.png", "memes", MAX_MEDIA_BYTES + 1),
     ],
-    ids=["unsafe-name", "long-name", "unsafe-group", "unsupported-file", "empty-file", "large-file"],
+    ids=[
+        "unsafe-name",
+        "long-name",
+        "unsafe-group",
+        "unsupported-file",
+        "image-only-upload",
+        "empty-file",
+        "large-file",
+    ],
 )
 def test_invalid_media_request_does_not_create_files(media_application, name, filename, group, size):
     with pytest.raises(MediaCommandError):

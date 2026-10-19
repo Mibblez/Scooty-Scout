@@ -65,6 +65,13 @@ def media_application(application, tmp_path):
 
 
 @pytest.fixture
+def video_download(monkeypatch):
+    download = Mock(return_value=b"video")
+    monkeypatch.setattr(bot_application, "download_twitter_video", download)
+    return download
+
+
+@pytest.fixture
 def alert_application(application, tmp_path):
     application.price_alerts = price_alerts.PriceAlerts(
         application.cryptos, application.cmc_api_key, tmp_path / "discord_notifications.db"

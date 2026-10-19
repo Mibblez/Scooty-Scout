@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sqlite3
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -11,9 +12,10 @@ import pytest
 
 import bot_application
 from bot_application import CoinCandidate, CoinCreationError, CoinInfo, CoinInfoError, CoinUpdateError
-from discord_adapter import DiscordAdapter
+from discord_adapter import DiscordAdapter, group_notification_batches
 from discord_bot import _admin_ids
 from group_notifications import GroupNotificationError
+from media_commands import MediaCommandError
 from wen import WenReply
 
 
@@ -23,6 +25,7 @@ def interaction(discord_context):
         user=SimpleNamespace(id=int(discord_context.user_id), display_name=discord_context.display_name),
         channel_id=123,
         guild_id=456,
+        channel=SimpleNamespace(send=AsyncMock()),
         response=SimpleNamespace(send_message=AsyncMock(), defer=AsyncMock(), edit_message=AsyncMock()),
         followup=SimpleNamespace(send=AsyncMock()),
         edit_original_response=AsyncMock(),
@@ -226,19 +229,84 @@ def test_group_preference_commands_delegate_and_reply_privately(
     interaction.followup.send.assert_awaited_once_with("Preference saved", ephemeral=True)
 
 
-@pytest.mark.parametrize("command_name", ["notify_me", "dont_notify_me"])
-def test_group_preference_commands_reject_direct_messages(application, interaction, invoke_command, command_name):
+@pytest.mark.parametrize(
+    ("command_name", "arguments"),
+    [("notify_me", ()), ("dont_notify_me", ()), ("everyone", ("Hello",))],
+)
+def test_group_commands_reject_direct_messages(application, interaction, invoke_command, command_name, arguments):
     interaction.guild_id = None
+    interaction.user.id = 7
     update = Mock()
-    setattr(application, command_name, update)
+    operation = "group_subscribers" if command_name == "everyone" else command_name
+    setattr(application, operation, update)
 
-    invoke_command(command_name)
+    invoke_command(command_name, *arguments)
 
     update.assert_not_called()
     interaction.response.send_message.assert_awaited_once_with(
         "Use this command in a server channel or thread.", ephemeral=True
     )
     interaction.response.defer.assert_not_awaited()
+
+
+def test_everyone_mentions_only_subscribers(application, interaction, discord_context, invoke_command):
+    interaction.user.id = 7
+    application.group_subscribers = Mock(return_value=("8", "18"))
+
+    invoke_command("everyone", "News @everyone <@999> <@&456>")
+
+    application.group_subscribers.assert_called_once_with(replace(discord_context, user_id="7"))
+    post = interaction.channel.send.call_args
+    assert post.args[0] == "News @everyone <@999> <@&456>\n<@8> <@18>"
+    mentions = post.kwargs["allowed_mentions"]
+    assert [user.id for user in mentions.users] == [8, 18]
+    assert mentions.everyone is False
+    assert mentions.roles is False
+    interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+    interaction.followup.send.assert_awaited_once_with("Mentioned 2 subscribed users here.", ephemeral=True)
+
+
+@pytest.mark.parametrize(
+    ("message", "user_ids"),
+    [
+        ("x" * 2000, tuple(str(user_id) for user_id in range(200))),
+        ("News", tuple(str(10**18 + user_id) for user_id in range(200))),
+    ],
+    ids=["long-message-and-mention-limit", "long-mentions"],
+)
+def test_group_notifications_respect_message_and_mention_limits(message, user_ids):
+    batches = list(group_notification_batches(message, user_ids))
+
+    assert all(len(text) <= 2000 and len(users) <= 100 for text, users in batches)
+    assert [str(user.id) for _, users in batches for user in users] == list(user_ids)
+    assert batches[0][0].startswith(message)
+
+
+def test_everyone_with_no_subscribers_does_not_post(application, interaction, invoke_command):
+    interaction.user.id = 7
+    application.group_subscribers = Mock(return_value=())
+
+    invoke_command("everyone", "News")
+
+    interaction.channel.send.assert_not_awaited()
+    interaction.followup.send.assert_awaited_once_with(
+        "No one has subscribed here yet. Use /notify_me to opt in.", ephemeral=True
+    )
+
+
+def test_everyone_reports_partial_delivery(application, interaction, invoke_command):
+    interaction.user.id = 7
+    application.group_subscribers = Mock(return_value=tuple(str(user_id) for user_id in range(101)))
+    interaction.channel.send.side_effect = [
+        None,
+        discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Cannot post"),
+    ]
+
+    invoke_command("everyone", "News")
+
+    assert interaction.channel.send.await_count == 2
+    assert "100 subscriber mentions were sent" in interaction.followup.send.call_args.args[0]
+    assert interaction.followup.send.call_args.kwargs["ephemeral"] is True
 
 
 @pytest.mark.parametrize(
@@ -429,8 +497,10 @@ def test_coin_creation_is_shared_and_persisted(application, discord_context, new
         ("new_crypto", ("NEW",)),
         ("update_crypto", ("TST", "website", "https://example.com")),
         ("new_media_command", ("frog", None)),
+        ("new_twitter_video_command", ("clip", "https://x.com/ada/status/123")),
+        ("everyone", ("News",)),
     ],
-    ids=["add-coin", "update-coin", "create-media-command"],
+    ids=["add-coin", "update-coin", "create-media-command", "create-video-command", "group-notification"],
 )
 def test_admin_commands_reject_non_admins(application, interaction, invoke_command, command_name, arguments):
     invoke_command(command_name, *arguments)
@@ -442,16 +512,31 @@ def test_admin_commands_reject_non_admins(application, interaction, invoke_comma
     assert not application.crypto_path.exists()
 
 
-def test_new_media_command_registers_and_sends_image(
-    adapter, media_application, interaction, image_upload, invoke_command
+@pytest.mark.parametrize(
+    ("command_name", "media_type", "filename"),
+    [("new_media_command", "image", "frog.png"), ("new_twitter_video_command", "video", "frog.mp4")],
+)
+def test_media_creation_registers_and_sends_file(
+    adapter,
+    media_application,
+    interaction,
+    image_upload,
+    video_download,
+    invoke_command,
+    command_name,
+    media_type,
+    filename,
 ):
     interaction.user.id = 7
     adapter.tree.sync = AsyncMock()
 
-    invoke_command("new_media_command", " FROG ", image_upload, "memes")
+    source = image_upload if media_type == "image" else "https://x.com/ada/status/123"
+    invoke_command(command_name, " FROG ", source, "memes")
 
     interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
-    interaction.followup.send.assert_awaited_once_with("Created /frog. Use it to send the saved image.", ephemeral=True)
+    interaction.followup.send.assert_awaited_once_with(
+        f"Created /frog. Use it to send the saved {media_type}.", ephemeral=True
+    )
     adapter.tree.sync.assert_awaited_once_with(guild=discord.Object(id=123))
     assert adapter.tree.get_command("frog").parameters == []
 
@@ -459,12 +544,13 @@ def test_new_media_command_registers_and_sends_image(
     invoke_command("frog")
 
     attachment = interaction.followup.send.call_args.kwargs["file"]
-    assert attachment.filename == "frog.png"
+    assert attachment.filename == filename
     assert attachment.fp.closed
 
 
-def test_saved_media_commands_are_registered_on_restart(media_application, interaction, run_async):
-    command = media_application.prepare_media_command("frog", "frog.png", "memes", 5)
+@pytest.mark.parametrize("filename", ["frog.png", "frog.mp4"])
+def test_saved_media_commands_are_registered_on_restart(media_application, interaction, run_async, filename):
+    command = media_application.media_commands.prepare("frog", filename, "memes", 5)
     media_application.add_media_command(command, b"image")
     client = DiscordAdapter(media_application, {7}, None)
     client.tree.sync = AsyncMock()
@@ -477,24 +563,30 @@ def test_saved_media_commands_are_registered_on_restart(media_application, inter
         run_async(client.tree.get_command("frog").callback(interaction))
 
         interaction.followup.send.assert_awaited_once_with(
-            "Could not send the saved image. Ask an admin to check its file."
+            f"Could not send the saved {command.media_type}. Ask an admin to check its file."
         )
     finally:
         run_async(client.close())
 
 
-@pytest.mark.parametrize("name", ["coins", "frog"], ids=["built-in-command", "saved-command"])
+@pytest.mark.parametrize(
+    ("name", "command_name"),
+    [("coins", "new_media_command"), ("frog", "new_media_command"), ("coins", "new_twitter_video_command")],
+    ids=["built-in-command", "saved-command", "video-with-built-in-name"],
+)
 def test_media_command_rejects_duplicate_names(
-    adapter, media_application, interaction, image_upload, invoke_command, name
+    adapter, media_application, interaction, image_upload, video_download, invoke_command, name, command_name
 ):
     saved = media_application.prepare_media_command("frog", "frog.png", "memes", 5)
     media_application.add_media_command(saved, b"image")
     interaction.user.id = 7
     adapter.tree.sync = AsyncMock()
 
-    invoke_command("new_media_command", name, image_upload)
+    source = image_upload if command_name == "new_media_command" else "https://x.com/ada/status/123"
+    invoke_command(command_name, name, source)
 
     image_upload.read.assert_not_awaited()
+    video_download.assert_not_called()
     adapter.tree.sync.assert_not_awaited()
     assert "already exists" in interaction.followup.send.call_args.args[0]
 
@@ -534,6 +626,22 @@ def test_media_sync_failure_keeps_saved_command_for_restart(
     assert media_application.media_commands.commands()[0].name == "frog"
     assert "Saved /frog" in interaction.followup.send.call_args.args[0]
     assert "Restart the bot" in interaction.followup.send.call_args.args[0]
+
+
+def test_failed_twitter_download_does_not_save_or_register(
+    adapter, media_application, interaction, video_download, invoke_command
+):
+    interaction.user.id = 7
+    adapter.tree.sync = AsyncMock()
+    video_download.side_effect = MediaCommandError("Video unavailable")
+
+    invoke_command("new_twitter_video_command", "clip", "https://x.com/ada/status/123")
+
+    interaction.followup.send.assert_awaited_once_with("Video unavailable", ephemeral=True)
+    assert media_application.media_commands.commands() == ()
+    assert not media_application.media_commands.directory.exists()
+    assert adapter.tree.get_command("clip") is None
+    adapter.tree.sync.assert_not_awaited()
 
 
 def test_list_commands_uses_shared_listing(application, interaction, discord_context, invoke_command):

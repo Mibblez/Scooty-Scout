@@ -35,9 +35,8 @@ def test_opt_out_preserves_other_users_and_conversations(group_application, disc
 
     group_application.dont_notify_me(discord_context)
 
-    subscriptions = group_application.group_notifications
-    assert subscriptions.subscribers(discord_context.conversation_id) == (other_user.user_id,)
-    assert subscriptions.subscribers(other_channel.conversation_id) == (discord_context.user_id,)
+    assert group_application.group_subscribers(discord_context) == (other_user.user_id,)
+    assert group_application.group_subscribers(other_channel) == (discord_context.user_id,)
 
 
 def test_discord_group_preferences_are_separate_from_telegram(group_application, discord_context, tmp_path):
