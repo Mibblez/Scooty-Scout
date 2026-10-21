@@ -227,7 +227,3 @@ Black uses a 120-character line length from `pyproject.toml`. Use
 `python -m black --check .` to check formatting. Pytest reports coverage.
 Tests mock network requests and platform interactions. Use a test server or group
 to check the command examples against live services.
-
-## License
-
-[MIT](LICENSE).
