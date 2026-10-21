@@ -1,5 +1,3 @@
-"""Discord command boundary tests without a live Discord connection."""
-
 import asyncio
 import json
 import sqlite3

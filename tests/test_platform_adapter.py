@@ -1,5 +1,3 @@
-"""Check the boundary between shared behavior and Telegram delivery."""
-
 from types import SimpleNamespace
 from unittest.mock import Mock
 

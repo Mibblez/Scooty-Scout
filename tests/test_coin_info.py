@@ -1,5 +1,3 @@
-"""Saved coin information shared by Telegram and Discord."""
-
 import pytest
 
 from bot_application import CoinInfoError

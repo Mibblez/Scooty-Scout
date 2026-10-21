@@ -1,9 +1,13 @@
-"""Group subscription persistence and isolation without platform APIs."""
-
+import importlib
+import sqlite3
+from contextlib import closing
 from dataclasses import replace
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
+import globals
 from backend_config import Backend
 from bot_application import BotApplication
 
@@ -51,3 +55,28 @@ def test_discord_group_preferences_are_separate_from_telegram(group_application,
     assert group_application.group_notifications.subscribers(discord_context.conversation_id) == (
         discord_context.user_id,
     )
+
+
+def test_telegram_subscriptions_preserve_names_and_match_exact_ids(tmp_path, monkeypatch):
+    bot = Mock()
+    bot.message_handler.side_effect = lambda **kwargs: lambda handler: handler
+    monkeypatch.setattr(globals, "bot", bot, raising=False)
+    notifications = importlib.import_module("price_notifications")
+    monkeypatch.chdir(tmp_path)
+    notifications.initialize_db()
+    message = SimpleNamespace(
+        chat=SimpleNamespace(id=-1001, type="group"),
+        from_user=SimpleNamespace(id=18, first_name="Ada O'Neil"),
+    )
+
+    notifications.at_everyone_opt_in(message)
+    message.from_user = SimpleNamespace(id=8, first_name="Grace")
+    notifications.at_everyone_opt_in(message)
+
+    with closing(sqlite3.connect("notifications.db")) as connection:
+        query = "SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id = -1001"
+        assert connection.execute(query).fetchone() == ("Ada O'Neil|18;Grace|8",)
+
+        notifications.at_everyone_opt_out(message)
+
+        assert connection.execute(query).fetchone() == ("Ada O'Neil|18",)

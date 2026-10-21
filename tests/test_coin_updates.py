@@ -1,11 +1,9 @@
-"""Coin metadata edits stay pending until explicitly confirmed."""
-
 import json
 from unittest.mock import Mock
 
 import pytest
 
-import bot_application
+import json_storage
 from bot_application import CoinUpdateError
 
 
@@ -80,7 +78,7 @@ def test_failed_save_preserves_live_and_saved_catalog(application, monkeypatch):
     application.update_coin(first)
     saved_before = application.crypto_path.read_text(encoding="utf-8")
     change = application.prepare_coin_update("TST", "website", "https://new.example.com")
-    monkeypatch.setattr(bot_application.os, "replace", Mock(side_effect=OSError("Disk unavailable")))
+    monkeypatch.setattr(json_storage.os, "replace", Mock(side_effect=OSError("Disk unavailable")))
 
     with pytest.raises(OSError, match="Disk unavailable"):
         application.update_coin(change)

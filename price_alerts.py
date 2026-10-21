@@ -1,4 +1,4 @@
-"""Persistent price alert rules shared by chat-platform adapters."""
+"""Store price alerts and find those ready for delivery."""
 
 import logging
 import math
@@ -15,7 +15,7 @@ logger = logging.getLogger("scooty_scout")
 
 
 class PriceAlertError(ValueError):
-    """A price alert could not be configured."""
+    """A price alert request failed validation or lookup."""
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class PriceAlerts:
             return connection.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone() is not None
 
     def list_notifications(self, context: CommandContext) -> list[tuple[str, float]]:
-        """Return only the caller's saved alerts, without fetching market data."""
+        """Return only the caller's saved alerts."""
         with closing(sqlite3.connect(self.db_path)) as connection:
             return connection.execute(
                 "SELECT coin, notify_at FROM price_notifications WHERE user_id = ? ORDER BY coin",
@@ -60,7 +60,7 @@ class PriceAlerts:
             ).fetchall()
 
     def delete_notification(self, context: CommandContext, symbol: str) -> str:
-        """Delete only the caller's alert for the requested coin."""
+        """Delete only the caller's alert for this coin."""
         symbol = symbol.strip().upper()
         with closing(sqlite3.connect(self.db_path)) as connection, connection:
             cursor = connection.execute(
@@ -72,7 +72,7 @@ class PriceAlerts:
         return f"Notification for {symbol} deleted"
 
     def is_pending(self, notification_id: int) -> bool:
-        """Check that an alert has not been canceled or replaced before delivery."""
+        """Check whether an alert still exists before delivery."""
         with closing(sqlite3.connect(self.db_path)) as connection:
             cursor = connection.execute(
                 "SELECT 1 FROM price_notifications WHERE notification_id = ?", (notification_id,)
@@ -112,7 +112,7 @@ class PriceAlerts:
                 "ON CONFLICT(user_id) DO UPDATE SET name = excluded.name",
                 (context.user_id, context.display_name),
             )
-            # A new ID prevents completion of an old alert from deleting its replacement.
+            # Give replacements a new ID so acknowledging an older alert preserves the new one.
             connection.execute(
                 "DELETE FROM price_notifications WHERE user_id = ? AND coin = ?",
                 (context.user_id, symbol),
@@ -162,6 +162,6 @@ class PriceAlerts:
         return due
 
     def acknowledge(self, notification_id: int) -> None:
-        """Remove an alert only after its platform has delivered it successfully."""
+        """Delete an alert after successful delivery."""
         with closing(sqlite3.connect(self.db_path)) as connection, connection:
             connection.execute("DELETE FROM price_notifications WHERE notification_id = ?", (notification_id,))

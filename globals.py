@@ -1,4 +1,4 @@
-global bot, cryptos_json, CMC_API_KEY
+"""Share the bot and coin catalog with legacy Telegram handlers."""
 
 
 def initilize(telebot, cryptos_json_other, cmc_api_key):

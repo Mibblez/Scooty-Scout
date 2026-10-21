@@ -6,7 +6,6 @@ from pathlib import Path
 
 
 def configure_logging(log_path: str | Path = "botlog.log") -> logging.Logger:
-    """Set up the application logger once and return it."""
     logger = logging.getLogger("scooty_scout")
     if any(handler.name == "scooty_scout_file" for handler in logger.handlers):
         return logger

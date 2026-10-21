@@ -1,4 +1,4 @@
-"""Configuration helpers for selecting the bot's chat platform."""
+"""Read the selected chat platform from BOT_BACKEND."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ class Backend(StrEnum):
 
 
 def get_backend(value: str | None = None) -> Backend:
-    """Return the selected backend, defaulting to Telegram for compatibility."""
+    """Default to Telegram to preserve existing deployments."""
     configured_value = value if value is not None else os.getenv("BOT_BACKEND")
     normalized_value = (configured_value or Backend.TELEGRAM.value).strip().lower()
 

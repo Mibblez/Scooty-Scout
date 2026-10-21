@@ -1,4 +1,4 @@
-"""Download a public Twitter/X video without depending on a chat platform."""
+"""Download public Twitter/X videos."""
 
 import logging
 import re
@@ -14,18 +14,19 @@ logger = logging.getLogger("scooty_scout")
 
 
 def twitter_video_url(url: str) -> str:
-    """Accept post links and copied video addresses, discarding share parameters."""
+    """Normalize post links and copied video addresses, preserving video selection."""
     try:
         parsed = urlsplit(url.strip())
     except ValueError as error:
         raise MediaCommandError("Provide a Twitter/X post URL containing a video.") from error
     hosts = {"twitter.com", "www.twitter.com", "mobile.twitter.com", "x.com", "www.x.com", "mobile.x.com"}
     match = re.fullmatch(
-        r"/(?:[A-Za-z0-9_]+/status|i/web/status|statuses)/([0-9]+)(/video/[1-9][0-9]*)?/?", parsed.path
+        r"/(?:[A-Za-z0-9_]+/status|i/web/status|statuses)/" r"(?P<post_id>[0-9]+)(?P<video_path>/video/[1-9][0-9]*)?/?",
+        parsed.path,
     )
     if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() not in hosts or match is None:
         raise MediaCommandError("Provide a Twitter/X post URL containing a video.")
-    return f"https://x.com/i/status/{match[1]}{match[2] or ''}"
+    return f"https://x.com/i/status/{match['post_id']}{match['video_path'] or ''}"
 
 
 def _check_download_size(progress: dict) -> None:
@@ -42,7 +43,7 @@ def download_twitter_video(url: str) -> bytes:
         )
         options = {
             "outtmpl": str(Path(directory) / "video.%(ext)s"),
-            # A direct MP4 avoids requiring an external merger such as ffmpeg.
+            # Download a direct MP4 to avoid an ffmpeg merge.
             "format": f"best{direct_mp4}/bestvideo{direct_mp4}",
             "max_filesize": MAX_MEDIA_BYTES,
             "noplaylist": True,

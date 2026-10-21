@@ -1,4 +1,4 @@
-"""Platform-neutral identity for a command invocation."""
+"""Identify a command's platform, user, and conversation."""
 
 from dataclasses import dataclass
 

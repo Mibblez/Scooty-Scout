@@ -1,4 +1,4 @@
-"""Discord slash commands and interaction translation."""
+"""Translate Discord slash commands and send responses."""
 
 import asyncio
 import io
@@ -49,7 +49,7 @@ async def send_followup_text(
     attachment_message: str,
     ephemeral: bool = False,
 ) -> None:
-    """Send a deferred reply as text or a UTF-8 attachment when it is too long."""
+    """Send long responses as UTF-8 attachments."""
     if len(text) <= 2000:
         await interaction.followup.send(text, ephemeral=ephemeral)
     else:
@@ -58,7 +58,7 @@ async def send_followup_text(
 
 
 def coin_info_embed(info: CoinInfo) -> discord.Embed | None:
-    """Build a coin card, falling back to text if it exceeds Discord's embed limits."""
+    """Return None when the coin card exceeds Discord's embed limits."""
     embed = discord.Embed(title=info.title, color=discord.Color.blurple())
     for label, value in info.fields:
         if label == "Contract address":
@@ -78,7 +78,7 @@ def coin_info_embed(info: CoinInfo) -> discord.Embed | None:
 
 
 def group_notification_batches(message: str, user_ids: tuple[str, ...]) -> Iterator[tuple[str, list[discord.Object]]]:
-    """Keep each notification within Discord's text and mention limits."""
+    """Split subscriber mentions to meet Discord's message and mention limits."""
     text = message
     users = []
     for user_id in user_ids:
@@ -184,6 +184,13 @@ class DiscordAdapter(discord.Client):
                 self._register_media_command(command)
 
     def _register_commands(self) -> None:
+        self._register_information_commands()
+        self._register_price_alert_commands()
+        self._register_group_notification_commands()
+        self._register_coin_management_commands()
+        self._register_media_management_commands()
+
+    def _register_information_commands(self) -> None:
         @self.tree.command(name="coins", description="List coins known to the bot")
         async def coins(interaction: discord.Interaction) -> None:
             response = self.bot_application.coins(context_from_interaction(interaction))
@@ -264,6 +271,7 @@ class DiscordAdapter(discord.Client):
             embed.set_footer(text="Source: Etherscan • Actual transaction costs vary.")
             await interaction.followup.send(embed=embed)
 
+    def _register_price_alert_commands(self) -> None:
         @self.tree.command(name="price_notify", description="DM you when a coin crosses your target USD price")
         @app_commands.describe(symbol="Known coin symbol (see /coins)", target="Target price in USD")
         async def price_notify(interaction: discord.Interaction, symbol: str, target: float) -> None:
@@ -330,6 +338,7 @@ class DiscordAdapter(discord.Client):
                 ephemeral=True,
             )
 
+    def _register_group_notification_commands(self) -> None:
         @self.tree.command(name="notify_me", description="Opt into this channel's /everyone notifications")
         @app_commands.guild_only()
         async def notify_me(interaction: discord.Interaction) -> None:
@@ -354,7 +363,7 @@ class DiscordAdapter(discord.Client):
                 return
             message = message.strip()
             if not message or len(message) > 2000:
-                await interaction.response.send_message("Provide a message of 1–2,000 characters.", ephemeral=True)
+                await interaction.response.send_message("Provide a message of 1 to 2,000 characters.", ephemeral=True)
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             try:
@@ -393,6 +402,7 @@ class DiscordAdapter(discord.Client):
                     log_to_disk(response, "/everyone", context_from_interaction(interaction))
             await interaction.followup.send(response, ephemeral=True)
 
+    def _register_coin_management_commands(self) -> None:
         @self.tree.command(name="new_crypto", description="Add a cryptocurrency to the bot")
         @app_commands.describe(identifier="Coin symbol or contract address")
         async def new_crypto(interaction: discord.Interaction, identifier: str) -> None:
@@ -441,6 +451,7 @@ class DiscordAdapter(discord.Client):
                     ephemeral=True,
                 )
 
+    def _register_media_management_commands(self) -> None:
         @self.tree.command(name="new_media_command", description="Create a slash command that sends an uploaded image")
         @app_commands.describe(
             name="New command name, such as party_frog",
@@ -598,7 +609,7 @@ class DiscordAdapter(discord.Client):
         for notification in notifications:
             try:
                 user = self.get_user(notification.user_id) or await self.fetch_user(notification.user_id)
-                # The alert may have been canceled while fetching the recipient.
+                # Recheck after the recipient lookup in case the user canceled or replaced the alert.
                 if not await asyncio.to_thread(alerts.is_pending, notification.notification_id):
                     continue
                 await user.send(notification.message())

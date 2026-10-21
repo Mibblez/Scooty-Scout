@@ -1,5 +1,3 @@
-"""Ethereum gas lookups and calculations without live API calls."""
-
 from unittest.mock import MagicMock, Mock
 
 import pytest

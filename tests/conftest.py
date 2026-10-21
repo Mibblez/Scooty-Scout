@@ -1,4 +1,4 @@
-"""Small fixtures shared by the platform and price alert tests."""
+"""Share fixtures for command logic and platform adapters."""
 
 import asyncio
 from unittest.mock import Mock
@@ -86,6 +86,6 @@ def alerts(alert_application):
 
 @pytest.fixture
 def run_async():
-    # Keep one event loop per test so background tasks can be closed on that loop.
+    # Share one event loop between command calls and background task cleanup.
     with asyncio.Runner() as runner:
         yield runner.run

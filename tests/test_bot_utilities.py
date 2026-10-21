@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+from contextlib import nullcontext
 from logging.handlers import RotatingFileHandler
 
 import pytest
@@ -17,14 +18,12 @@ from logging_setup import configure_logging
 
 
 class FakeResponse:
-    """Provide the response text expected by API helper tests."""
-
     def __init__(self, text):
         self.text = text
 
 
 class FakeSession:
-    """Record API requests and return configurable responses or request errors."""
+    """Record API calls and return the configured response or error."""
 
     def __init__(self):
         self.headers = {}
@@ -44,7 +43,7 @@ class FakeSession:
 @pytest.fixture
 def mock_session(monkeypatch):
     session = FakeSession()
-    monkeypatch.setattr(bot_utilities, "Session", lambda: session)
+    monkeypatch.setattr(bot_utilities, "Session", lambda: nullcontext(session))
     return session
 
 
@@ -146,6 +145,7 @@ def test_get_coin_info_uses_address_or_id(mock_session, coin_id, expected_params
     result = bot_utilities.get_coin_info("0xabc", "test-api-key", id=coin_id)
 
     assert result == mock_session.payload
+    assert mock_session.timeout == 15
     assert mock_session.calls == [
         {
             "url": "https://pro-api.coinmarketcap.com/v1/cryptocurrency/info",
@@ -162,6 +162,7 @@ def test_cmc_id_map_queries_by_symbol(mock_session):
     result = bot_utilities.cmc_id_map("BTC", "test-api-key")
 
     assert result == {"data": [{"id": 1, "symbol": "BTC"}]}
+    assert mock_session.timeout == 15
     assert mock_session.calls == [
         {
             "url": "https://pro-api.coinmarketcap.com/v1/cryptocurrency/map",

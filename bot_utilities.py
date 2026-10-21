@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Iterable
+
 from requests import Session
 from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 
@@ -24,7 +25,7 @@ class UserState:
         return self.__current_command
 
 
-class TwitterVideoLogger(object):
+class TwitterVideoLogger:
     def debug(self, msg):
         pass
 
@@ -40,81 +41,42 @@ def usage_error(usage_str: str = "") -> str:
 
 
 def unknown_coin(invalid_coin_str: object, known_coins: Iterable[str]) -> str:
-    return f"Unknown coin: {invalid_coin_str}\n\nKnown coins:" f"{' ; '.join(known_coins)}"
+    return f"Unknown coin: {invalid_coin_str}\n\nKnown coins:{' ; '.join(known_coins)}"
 
 
 def log_to_disk(log_message, command_name, actor: CommandContext | None = None):
-    """Record an admin change, including the actor when one is available."""
     if actor is not None:
         log_message = f"{{{actor.display_name} - {actor.user_id}}} {log_message}"
 
     logger.info("(%s)%s", command_name, log_message)
 
 
+def _get_cmc_data(endpoint, parameters, cmc_api_key):
+    try:
+        with Session() as session:
+            session.headers.update(
+                {
+                    "Accepts": "application/json",
+                    "X-CMC_PRO_API_KEY": cmc_api_key,
+                }
+            )
+            response = session.get(
+                f"https://pro-api.coinmarketcap.com/v1/cryptocurrency/{endpoint}", params=parameters, timeout=15
+            )
+            return json.loads(response.text)
+    except (ConnectionError, Timeout, TooManyRedirects) as error:
+        logger.warning("CoinMarketCap %s request failed: %s", endpoint, type(error).__name__)
+        return None
+
+
 def get_coin_data(coin_id, cmc_api_key):
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-    headers = {
-        "Accepts": "application/json",
-        "X-CMC_PRO_API_KEY": cmc_api_key,
-    }
-
-    parameters = {"id": coin_id}
-
-    session = Session()
-    session.headers.update(headers)
-
-    try:
-        response = session.get(url, params=parameters, timeout=15)
-        data = json.loads(response.text)
-        return data
-    except (ConnectionError, Timeout, TooManyRedirects) as e:
-        logger.warning("CoinMarketCap quote request failed: %s", type(e).__name__)
-        return None
+    return _get_cmc_data("quotes/latest", {"id": coin_id}, cmc_api_key)
 
 
-# FIXME: Make contract_address and id optional args
 def get_coin_info(contract_address, cmc_api_key, id=None):
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/info"
-    headers = {
-        "Accepts": "application/json",
-        "X-CMC_PRO_API_KEY": cmc_api_key,
-    }
-
-    if id is None:
-        parameters = {"address": contract_address}
-    else:
-        parameters = {"id": id}
-
-    session = Session()
-    session.headers.update(headers)
-
-    try:
-        response = session.get(url, params=parameters)
-        data = json.loads(response.text)
-        return data
-    except (ConnectionError, Timeout, TooManyRedirects) as e:
-        logger.warning("CoinMarketCap info request failed: %s", type(e).__name__)
-        return None
+    parameters = {"address": contract_address} if id is None else {"id": id}
+    return _get_cmc_data("info", parameters, cmc_api_key)
 
 
 def cmc_id_map(symbol, cmc_api_key):
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/map"
-    headers = {
-        "Accepts": "application/json",
-        "X-CMC_PRO_API_KEY": cmc_api_key,
-    }
-
-    parameters = {
-        "symbol": symbol,
-    }
-
-    session = Session()
-    session.headers.update(headers)
-
-    try:
-        response = session.get(url, params=parameters)
-        data = json.loads(response.text)
-        return data
-    except (ConnectionError, Timeout, TooManyRedirects) as e:
-        logger.warning("CoinMarketCap map request failed: %s", type(e).__name__)
-        return None
+    return _get_cmc_data("map", {"symbol": symbol}, cmc_api_key)

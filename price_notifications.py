@@ -1,8 +1,10 @@
-import sqlite3
-import time
-import logging
+"""Manage Telegram group subscriptions and deliver price alerts."""
 
 import functools
+import logging
+import sqlite3
+import time
+from contextlib import closing
 
 import globals
 from price_alerts import PriceAlerts
@@ -11,44 +13,25 @@ logger = logging.getLogger("scooty_scout")
 
 
 def initialize_db():
-    connection = sqlite3.connect("notifications.db")
-    cursor = connection.cursor()
-
-    command1 = "CREATE TABLE IF NOT EXISTS " + "users(user_id INTEGER PRIMARY KEY, name TEXT)"
-
-    command2 = (
-        "CREATE TABLE IF NOT EXISTS "
-        + "price_notifications("
-        + "notification_id INTEGER PRIMARY KEY AUTOINCREMENT, coin TEXT, user_id INTEGER, "
-        + "notify_at FLOAT, direction CHAR,"
-        + "FOREIGN KEY(user_id) REFERENCES users(user_id))"
-    )
-
-    command3 = (
-        "CREATE TABLE IF NOT EXISTS " + "at_everyone_notifications(group_chat_id INTEGER PRIMARY KEY, to_notify TEXT)"
-    )
-
-    cursor.execute(command1)
-    cursor.execute(command2)
-    cursor.execute(command3)
-
-    connection.commit()
-    connection.close()
+    with closing(sqlite3.connect("notifications.db")) as connection, connection:
+        connection.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, name TEXT)")
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS price_notifications("
+            "notification_id INTEGER PRIMARY KEY AUTOINCREMENT, coin TEXT, user_id INTEGER, "
+            "notify_at FLOAT, direction CHAR, FOREIGN KEY(user_id) REFERENCES users(user_id))"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS at_everyone_notifications(" "group_chat_id INTEGER PRIMARY KEY, to_notify TEXT)"
+        )
 
 
-# Wrapper that creates a cursor for notifications.db and passes it down to func
-# Closes the connection to the db and commits any changes once func returns
 def uses_notification_db(func):
+    """Pass a database cursor to a handler and commit successful changes."""
+
     @functools.wraps(func)
     def wrapped(*args, **kwargs):
-        connection = sqlite3.connect("notifications.db")
-        cursor = connection.cursor()
-
-        # Call func with cursor, passing along any other args to it as well
-        func(cursor, *args, **kwargs)
-
-        connection.commit()
-        connection.close()
+        with closing(sqlite3.connect("notifications.db")) as connection, connection:
+            func(connection.cursor(), *args, **kwargs)
 
     return wrapped
 
@@ -60,25 +43,25 @@ def at_everyone_opt_in(cursor, message):
         return
 
     chat_id = message.chat.id
+    user_id = str(message.from_user.id)
 
-    cursor.execute(f"SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id={chat_id}")
+    cursor.execute("SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id = ?", (chat_id,))
     if (result := cursor.fetchone()) is not None:
-        user_ids = result[0]
+        entries = result[0].split(";") if result[0] else []
 
-        if str(message.from_user.id) in user_ids:
-            globals.bot.reply_to(message, "You're already recieving @everyone notifiactions")
+        if any(entry.rsplit("|", 1)[-1] == user_id for entry in entries):
+            globals.bot.reply_to(message, "You're already receiving @everyone notifications")
             return
 
-        # Append the user's first name and ID to the group's notification entry
-        user_ids += f";{message.from_user.first_name}|{message.from_user.id}"
+        entries.append(f"{message.from_user.first_name}|{user_id}")
         cursor.execute(
-            "UPDATE at_everyone_notifications " f"SET to_notify = '{user_ids}' WHERE group_chat_id = '{chat_id}'"
+            "UPDATE at_everyone_notifications SET to_notify = ? WHERE group_chat_id = ?",
+            (";".join(entries), chat_id),
         )
     else:
-        # A db entry does not exist for this group chat. Create one
         cursor.execute(
-            "INSERT INTO at_everyone_notifications VALUES "
-            f"({chat_id}, '{message.from_user.first_name}|{message.from_user.id}')"
+            "INSERT INTO at_everyone_notifications(group_chat_id, to_notify) VALUES (?, ?)",
+            (chat_id, f"{message.from_user.first_name}|{user_id}"),
         )
 
     globals.bot.reply_to(message, "You will now be notified when someone uses the /everyone command")
@@ -91,18 +74,16 @@ def at_everyone_opt_out(cursor, message):
         return
 
     chat_id = message.chat.id
+    user_id = str(message.from_user.id)
 
-    cursor.execute(f"SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id={chat_id}")
+    cursor.execute("SELECT to_notify FROM at_everyone_notifications WHERE group_chat_id = ?", (chat_id,))
     if (result := cursor.fetchone()) is not None:
-        user_ids = result[0]
-
-        if str(message.from_user.id) in user_ids:
-            # Remove the user's first name and ID from the group's notification entry
-            user_ids_new = ";".join(list(filter(lambda x: str(message.from_user.id) not in x, user_ids.split(";"))))
-            cursor.execute(
-                "UPDATE at_everyone_notifications "
-                f"SET to_notify = '{user_ids_new}' WHERE group_chat_id = '{chat_id}'"
-            )
+        entries = result[0].split(";")
+        remaining_entries = [entry for entry in entries if entry.rsplit("|", 1)[-1] != user_id]
+        cursor.execute(
+            "UPDATE at_everyone_notifications SET to_notify = ? WHERE group_chat_id = ?",
+            (";".join(remaining_entries), chat_id),
+        )
 
     globals.bot.reply_to(message, "You won't be notified when someone uses the /everyone command")
 

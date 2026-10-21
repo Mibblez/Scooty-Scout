@@ -1,4 +1,4 @@
-"""Fetch Ethereum gas estimates without depending on a chat platform."""
+"""Fetch Ethereum gas rates and estimate Uniswap costs in USD."""
 
 import logging
 import math
@@ -12,7 +12,7 @@ UNISWAP_GAS_LIMIT = 152_000
 
 
 class GasPriceError(ValueError):
-    """Ethereum gas prices are not configured or could not be retrieved."""
+    """Ethereum gas configuration or lookup failed."""
 
 
 @dataclass(frozen=True)
@@ -68,7 +68,7 @@ def get_ethereum_gas(api_key: str | None) -> GasPrices:
                 raise ValueError("Invalid gas price.")
             estimates.append(GasEstimate(label, gwei, usd))
     except (RequestException, KeyError, TypeError, ValueError) as error:
-        # Request exceptions can contain a URL with the API key; log only their type.
+        # Log the exception type because its message may expose the API key in a URL.
         logger.warning("Etherscan gas lookup failed: %s", type(error).__name__)
         raise GasPriceError(
             "Could not get Ethereum gas prices. Check your Etherscan API key and limits, then try again."

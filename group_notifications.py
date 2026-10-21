@@ -1,4 +1,4 @@
-"""Persistent opt-in subscriptions for group notifications on any chat platform."""
+"""Store group subscriptions separately for each conversation."""
 
 import sqlite3
 from contextlib import closing
@@ -8,7 +8,7 @@ from command_context import CommandContext
 
 
 class GroupNotificationError(ValueError):
-    """Group notification preferences cannot be updated."""
+    """The bot cannot access group notification settings."""
 
 
 class GroupNotifications:
@@ -22,7 +22,6 @@ class GroupNotifications:
             )
 
     def notify_me(self, context: CommandContext) -> str:
-        """Subscribe once, without requiring a price alert or user registration."""
         with closing(sqlite3.connect(self.db_path)) as connection, connection:
             cursor = connection.execute(
                 "INSERT INTO group_notification_subscriptions(conversation_id, user_id) VALUES (?, ?) "
@@ -34,7 +33,6 @@ class GroupNotifications:
         return "You're now subscribed to /everyone notifications here."
 
     def dont_notify_me(self, context: CommandContext) -> str:
-        """Unsubscribe only the caller in this conversation; repeated calls are safe."""
         with closing(sqlite3.connect(self.db_path)) as connection, connection:
             connection.execute(
                 "DELETE FROM group_notification_subscriptions WHERE conversation_id = ? AND user_id = ?",

@@ -1,4 +1,4 @@
-"""Shared joke responses and optional audio for /wen."""
+"""Choose joke responses and optional audio for /wen."""
 
 import random
 from dataclasses import dataclass

@@ -1,5 +1,3 @@
-"""Price alert persistence and threshold checks without network requests."""
-
 import sqlite3
 from contextlib import closing
 

@@ -1,28 +1,28 @@
-"""Store reusable media commands independently of any chat platform."""
+"""Store custom media files and their command definitions."""
 
 import json
-import os
 import re
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
+
+from json_storage import write_json_atomically
 
 MAX_MEDIA_BYTES = 8 * 1024 * 1024
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 class MediaCommandError(ValueError):
-    """A custom media command cannot be created or found."""
+    """A media request or saved catalog failed validation."""
 
 
-def _label(value: str, description: str) -> str:
+def _normalize_label(value: str, description: str) -> str:
     if not isinstance(value, str):
         raise MediaCommandError(f"Invalid {description}.")
     value = value.strip().lower()
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", value):
         raise MediaCommandError(
-            f"{description.capitalize()} must be 1–32 letters, digits, underscores, or hyphens, "
+            f"{description.capitalize()} must be 1 to 32 letters, digits, underscores, or hyphens, "
             "starting with a letter or digit."
         )
     return value
@@ -63,8 +63,8 @@ class MediaCommands:
             return tuple(sorted(self._commands.values(), key=lambda command: command.name))
 
     def prepare(self, name: str, filename: str, group: str, size: int | None = None) -> MediaCommand:
-        name = _label(name, "command name")
-        group = _label(group, "group name")
+        name = _normalize_label(name, "command name")
+        group = _normalize_label(group, "group name")
         extension = Path(filename).suffix.lower()
         if extension not in IMAGE_EXTENSIONS | {".mp4"}:
             raise MediaCommandError("Use a PNG, JPEG, GIF, or WebP image, or an MP4 video.")
@@ -93,29 +93,21 @@ class MediaCommands:
             self._commands = updated
 
     def list_commands(self, group: str | None = None) -> str:
-        commands = self.commands()
-        if not commands:
+        groups: dict[str, list[str]] = {}
+        for command in self.commands():
+            groups.setdefault(command.group, []).append(f"/{command.name}")
+        if not groups:
             return "No custom media commands have been added yet."
         if group is not None:
-            group = _label(group, "group name")
-            selected = [command for command in commands if command.group == group]
-            if not selected:
-                known = ", ".join(sorted({command.group for command in commands}))
+            group = _normalize_label(group, "group name")
+            if group not in groups:
+                known = ", ".join(sorted(groups))
                 raise MediaCommandError(f"Unknown command group: {group}. Known groups: {known}")
-            return f"Custom commands in {group}:\n" + "\n".join(f"/{command.name}" for command in selected)
+            return f"Custom commands in {group}:\n" + "\n".join(groups[group])
         lines = ["Custom media commands:"]
-        for name in sorted({command.group for command in commands}):
-            names = ", ".join(f"/{command.name}" for command in commands if command.group == name)
-            lines.append(f"{name}: {names}")
+        lines.extend(f"{name}: {', '.join(names)}" for name, names in sorted(groups.items()))
         return "\n".join(lines)
 
     def _save(self, commands: dict[str, MediaCommand]) -> None:
         records = {name: {"group": command.group, "filename": command.filename} for name, command in commands.items()}
-        descriptor, temporary_path = tempfile.mkstemp(prefix=".commands-", suffix=".json", dir=self.directory)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-                json.dump(records, output, indent=4)
-            os.replace(temporary_path, self.catalog_path)
-        finally:
-            if os.path.exists(temporary_path):
-                os.unlink(temporary_path)
+        write_json_atomically(self.catalog_path, records)

@@ -1,11 +1,9 @@
-"""Custom media storage and listing without platform APIs."""
-
 import json
 from unittest.mock import Mock
 
 import pytest
 
-import media_commands
+import json_storage
 from bot_application import BotApplication
 from media_commands import MAX_MEDIA_BYTES, MediaCommandError, MediaCommands
 
@@ -75,7 +73,7 @@ def test_media_save_failure_keeps_existing_commands(media_application, monkeypat
     store.add(frog, b"image")
     before = store.catalog_path.read_bytes()
     chart = store.prepare("chart", "chart.png", "charts", 5)
-    monkeypatch.setattr(media_commands.os, "replace", Mock(side_effect=OSError("Disk unavailable")))
+    monkeypatch.setattr(json_storage.os, "replace", Mock(side_effect=OSError("Disk unavailable")))
 
     with pytest.raises(OSError, match="Disk unavailable"):
         store.add(chart, b"chart")

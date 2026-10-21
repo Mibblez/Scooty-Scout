@@ -4,8 +4,8 @@ import logging
 
 from backend_config import Backend
 from bot_application import BotApplication, CoinInfoError
-from command_context import CommandContext
 from bot_utilities import usage_error
+from command_context import CommandContext
 from ethereum_gas import GasPriceError
 from price_alerts import PriceAlertError
 

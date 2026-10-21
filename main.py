@@ -1,4 +1,4 @@
-"""Select and start the configured chat-platform backend."""
+"""Select and start the configured chat platform."""
 
 from __future__ import annotations
 
@@ -13,11 +13,8 @@ def main() -> None:
 
     if backend is Backend.TELEGRAM:
         from telegram_bot import run
-
-        run()
-        return
-
-    from discord_bot import run
+    else:
+        from discord_bot import run
 
     run()
 

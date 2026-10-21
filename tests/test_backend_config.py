@@ -1,5 +1,3 @@
-"""Tests for chat-platform selection."""
-
 import sys
 from types import ModuleType
 

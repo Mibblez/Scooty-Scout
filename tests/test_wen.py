@@ -1,5 +1,3 @@
-"""Shared /wen response selection without platform APIs."""
-
 import pytest
 
 import wen

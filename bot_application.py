@@ -1,9 +1,6 @@
-"""Shared bot behavior called by each chat-platform adapter."""
+"""Provide shared command logic for platform adapters."""
 
-import json
 import logging
-import os
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +11,7 @@ from bot_utilities import cmc_id_map, get_coin_data, get_coin_info, unknown_coin
 from command_context import CommandContext
 from ethereum_gas import GasPrices, get_ethereum_gas
 from group_notifications import GroupNotificationError, GroupNotifications
+from json_storage import write_json_atomically
 from media_commands import IMAGE_EXTENSIONS, MediaCommand, MediaCommandError, MediaCommands
 from price_alerts import PriceAlerts, PriceAlertError
 from twitter_videos import download_twitter_video
@@ -23,15 +21,15 @@ logger = logging.getLogger("scooty_scout")
 
 
 class CoinCreationError(ValueError):
-    """A requested coin cannot be added to the catalog."""
+    """A coin lookup or creation request failed."""
 
 
 class CoinInfoError(ValueError):
-    """Information cannot be shown for the requested coin."""
+    """The bot cannot find or display the requested coin."""
 
 
 class CoinUpdateError(ValueError):
-    """A requested change to coin metadata cannot be saved."""
+    """A metadata change failed validation."""
 
 
 @dataclass(frozen=True)
@@ -58,7 +56,6 @@ class CoinInfo:
         return f"{self.name} ({self.symbol})" if self.name != self.symbol else self.symbol
 
     def as_text(self) -> str:
-        """Render a readable text version for platforms without embeds."""
         lines = [self.title]
         if self.fields:
             lines.append("")
@@ -113,7 +110,8 @@ class BotApplication:
         etherscan_api_key: str | None = None,
         media_path: str | Path | None = None,
     ) -> None:
-        self.cryptos = dict(cryptos) if not isinstance(cryptos, dict) else cryptos
+        # Keep the original dictionary so services share catalog updates.
+        self.cryptos = cryptos if isinstance(cryptos, dict) else dict(cryptos)
         self.cmc_api_key = cmc_api_key
         self.etherscan_api_key = etherscan_api_key
         self.crypto_path = Path(crypto_path)
@@ -123,7 +121,6 @@ class BotApplication:
         self.media_commands = MediaCommands(media_path) if media_path is not None else None
 
     def coins(self, _context: CommandContext) -> str:
-        """List known coins without depending on a platform's message API."""
         return "Known coins:\n" + " ; ".join(self.cryptos)
 
     def prepare_media_command(self, name: str, filename: str, group: str, size: int) -> MediaCommand:
@@ -152,11 +149,9 @@ class BotApplication:
         return self.media_commands.list_commands(group)
 
     def wen(self, _context: CommandContext, thing: str) -> WenReply | None:
-        """Choose a joke response and optional audio for any platform."""
         return get_wen_reply(thing)
 
     def info(self, _context: CommandContext, symbol: str) -> CoinInfo:
-        """Read saved coin metadata without depending on a platform's presentation."""
         symbol = symbol.strip().upper()
         if not symbol:
             raise CoinInfoError(usage_error("/info COIN_SYMBOL"))
@@ -186,7 +181,6 @@ class BotApplication:
         return CoinInfo(symbol, coin.get("cmc_name") or symbol, fields, links)
 
     def price(self, _context: CommandContext, symbol: str) -> str:
-        """Get a known coin's USD price and 24-hour movement for any platform."""
         symbol = symbol.strip().upper()
         if not symbol:
             return usage_error("/price COIN_SYMBOL")
@@ -209,20 +203,17 @@ class BotApplication:
             return unavailable
 
         movement_direction = "⬆️" if percent_change_24h > 0.0 else "⬇️"
-        return f"{symbol} Price: ${latest_price}\n" f"{movement_direction} {percent_change_24h}% (24H)"
+        return f"{symbol} Price: ${latest_price}\n{movement_direction} {percent_change_24h}% (24H)"
 
     def ethgas(self, _context: CommandContext) -> GasPrices:
-        """Get Ethereum gas tiers and USD estimates through the shared lookup."""
         return get_ethereum_gas(self.etherscan_api_key)
 
     def price_notify(self, context: CommandContext, symbol: str, target: str | float) -> str:
-        """Set or replace one user's price alert through the shared service."""
         if self.price_alerts is None:
             raise PriceAlertError("Price notifications are not configured.")
         return self.price_alerts.set_notification(context, symbol, target)
 
     def check_notifications(self, context: CommandContext) -> str:
-        """List the caller's price alerts for any platform."""
         if self.price_alerts is None:
             raise PriceAlertError("Price notifications are not configured.")
         notifications = self.price_alerts.list_notifications(context)
@@ -231,31 +222,27 @@ class BotApplication:
         return "".join(f"{coin} at ${target}\n" for coin, target in notifications)
 
     def delete_notification(self, context: CommandContext, symbol: str) -> str:
-        """Cancel one of the caller's price alerts for any platform."""
         if self.price_alerts is None:
             raise PriceAlertError("Price notifications are not configured.")
         return self.price_alerts.delete_notification(context, symbol)
 
     def notify_me(self, context: CommandContext) -> str:
-        """Opt the caller into group notifications for this conversation."""
         if self.group_notifications is None:
             raise GroupNotificationError("Group notifications are not configured.")
         return self.group_notifications.notify_me(context)
 
     def dont_notify_me(self, context: CommandContext) -> str:
-        """Opt the caller out of group notifications for this conversation."""
         if self.group_notifications is None:
             raise GroupNotificationError("Group notifications are not configured.")
         return self.group_notifications.dont_notify_me(context)
 
     def group_subscribers(self, context: CommandContext) -> tuple[str, ...]:
-        """Return the users who opted into notifications in this conversation."""
         if self.group_notifications is None:
             raise GroupNotificationError("Group notifications are not configured.")
         return self.group_notifications.subscribers(context.conversation_id)
 
     def prepare_new_coin(self, identifier: str) -> CoinCandidate:
-        """Look up one coin in CoinMarketCap and prepare it for confirmation."""
+        """Look up a coin for review before saving."""
         identifier = identifier.strip()
         if not identifier:
             raise CoinCreationError("Provide a contract address or coin symbol.")
@@ -311,7 +298,7 @@ class BotApplication:
         )
 
     def add_coin(self, candidate: CoinCandidate) -> None:
-        """Persist a confirmed coin and update the live catalog."""
+        """Save a confirmed coin and update the shared catalog."""
         with self._catalog_lock:
             if candidate.symbol in self.cryptos:
                 raise CoinCreationError(f"{candidate.symbol} is already known by the bot.")
@@ -319,7 +306,7 @@ class BotApplication:
             self._save_catalog(updated)
 
     def prepare_coin_update(self, symbol: str, field: str, value: str) -> CoinUpdate:
-        """Validate a metadata change without changing the saved or live catalog."""
+        """Prepare a metadata change for confirmation."""
         symbol = symbol.strip().upper()
         field = field.strip()
         value = value.strip()
@@ -335,7 +322,7 @@ class BotApplication:
         return CoinUpdate(symbol, field, value, metadata.get(field))
 
     def update_coin(self, change: CoinUpdate) -> None:
-        """Save a confirmed field change, preserving other metadata and coin identifiers."""
+        """Save a confirmed change, rejecting a stale preview."""
         with self._catalog_lock:
             current = self.prepare_coin_update(change.symbol, change.field, change.value)
             if current.previous_value != change.previous_value:
@@ -346,16 +333,7 @@ class BotApplication:
             self._save_catalog({**self.cryptos, current.symbol: updated_coin})
 
     def _save_catalog(self, updated: dict[str, Any]) -> None:
-        """Replace the file before updating live data; the caller holds the catalog lock."""
-        file_descriptor, temporary_path = tempfile.mkstemp(
-            prefix=".cryptos-", suffix=".json", dir=self.crypto_path.parent
-        )
-        try:
-            with os.fdopen(file_descriptor, "w", encoding="utf-8") as output:
-                json.dump(updated, output, indent=4)
-            os.replace(temporary_path, self.crypto_path)
-        finally:
-            if os.path.exists(temporary_path):
-                os.unlink(temporary_path)
+        """Save before updating shared data; the caller holds the catalog lock."""
+        write_json_atomically(self.crypto_path, updated)
         self.cryptos.clear()
         self.cryptos.update(updated)

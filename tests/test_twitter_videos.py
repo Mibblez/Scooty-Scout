@@ -1,5 +1,3 @@
-"""Twitter/X downloads using a fake downloader, without network requests."""
-
 from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock
